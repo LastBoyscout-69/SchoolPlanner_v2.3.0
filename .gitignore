@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# PyInstaller
+build/
+dist/
+*.spec
+*.manifest
+
+# Виртуальные окружения
+venv/
+.venv/
+env/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Данные
+school_data.json
+keys.txt
+issued_keys.txt
+
+# Большие файлы
+*.exe
+*.zip
+*.pkg
+*.msi
+
+# Папки со сборками
+Готовые сборки/
+Компиляция/
+
+# Документы
+*.docx
+
+# Дополнительно
+README.txt
+*.spec
+advisor.zip
+app.py
+keys.txt
+school_data.json
+Готовые сборки/
+Компиляция/
+*.docx
