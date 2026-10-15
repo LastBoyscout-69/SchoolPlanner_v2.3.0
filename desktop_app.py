@@ -4,6 +4,7 @@ from storage import load_data, save_data
 from models import Teacher, SchoolClass, Subject, Room
 from scheduler import Scheduler
 import license as lic
+from excel_export import export_to_excel
 
 DAY_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт"]
 
@@ -14,7 +15,7 @@ def main(page: ft.Page):
 
     # ---------- Общие настройки окна ----------
     title_suffix = "" if is_activated else " (ДЕМО)"
-    page.title = f"SchoolPlanner v2.0.0{title_suffix}"
+    page.title = f"SchoolPlanner v2.1.0{title_suffix}"
     page.window.width = 1800
     page.window.height = 1000
     page.window.min_width = 1000
@@ -44,9 +45,18 @@ def main(page: ft.Page):
 
     # ---------- Хелперы ----------
     SUBJECT_COLORS = [
-        "#6366f1", "#ef4444", "#10b981", "#f59e0b",
-        "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16",
-        "#f97316", "#14b8a6", "#a855f7", "#eab308",
+        "#6366f1",
+        "#ef4444",
+        "#10b981",
+        "#f59e0b",
+        "#8b5cf6",
+        "#06b6d4",
+        "#ec4899",
+        "#84cc16",
+        "#f97316",
+        "#14b8a6",
+        "#a855f7",
+        "#eab308",
     ]
 
     def subject_color(subject_name):
@@ -93,26 +103,43 @@ def main(page: ft.Page):
             demo_banner.padding = 0
         else:
             demo_banner.content = ft.Container(
-                content=ft.Row([
-                    ft.Text("🔓", size=20),
-                    ft.Column([
-                        ft.Text("Демо-версия",
-                                size=14, weight="bold", color="#fbbf24"),
-                        ft.Text(
-                            f"Ограничение: не более {lic.DEMO_MAX_CLASSES} классов. "
-                            "Введите ключ активации, чтобы снять ограничение.",
-                            size=12, color="#fde68a"),
-                    ], spacing=2, expand=True),
-                    ft.Button(
-                        "🔑 Ввести ключ",
-                        on_click=open_activation_dialog,
-                        style=ft.ButtonStyle(
-                            bgcolor="#f59e0b", color="white",
-                            padding=ft.Padding.symmetric(horizontal=20, vertical=12),
-                            shape=ft.RoundedRectangleBorder(radius=8),
+                content=ft.Row(
+                    [
+                        ft.Text("🔓", size=20),
+                        ft.Column(
+                            [
+                                ft.Text(
+                                    "Демо-версия",
+                                    size=14,
+                                    weight="bold",
+                                    color="#fbbf24",
+                                ),
+                                ft.Text(
+                                    f"Ограничение: не более {lic.DEMO_MAX_CLASSES} классов. "
+                                    "Введите ключ активации, чтобы снять ограничение.",
+                                    size=12,
+                                    color="#fde68a",
+                                ),
+                            ],
+                            spacing=2,
+                            expand=True,
                         ),
-                    ),
-                ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                        ft.Button(
+                            "🔑 Ввести ключ",
+                            on_click=open_activation_dialog,
+                            style=ft.ButtonStyle(
+                                bgcolor="#f59e0b",
+                                color="white",
+                                padding=ft.Padding.symmetric(
+                                    horizontal=20, vertical=12
+                                ),
+                                shape=ft.RoundedRectangleBorder(radius=8),
+                            ),
+                        ),
+                    ],
+                    spacing=12,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
                 bgcolor="#78350f",
                 border=ft.Border.all(1, "#f59e0b"),
                 border_radius=10,
@@ -160,11 +187,12 @@ def main(page: ft.Page):
                 status_text.color = "#10b981"
                 status_text.update()
                 import time
+
                 time.sleep(0.5)
                 dlg.open = False
                 page.update()
                 render_demo_banner()
-                page.title = "SchoolPlanner v2.0.0"
+                page.title = "SchoolPlanner v2.1.0"
                 page.update()
             else:
                 status_text.value = "❌ Не удалось сохранить ключ."
@@ -181,15 +209,25 @@ def main(page: ft.Page):
             modal=True,
             title=ft.Text("🔑 Активация программы", color=TEXT_MAIN),
             content=ft.Container(
-                content=ft.Column([
-                    ft.Text("Введите ключ активации, который вы получили от разработчика.",
-                            color=TEXT_MUTED, size=13),
-                    ft.Text("Формат ключа: SP-XXXX-XXXX-XXXX",
-                            color=TEXT_MUTED, size=12, italic=True),
-                    ft.Divider(color=CARD_BORDER),
-                    key_field,
-                    status_text,
-                ], spacing=10),
+                content=ft.Column(
+                    [
+                        ft.Text(
+                            "Введите ключ активации, который вы получили от разработчика.",
+                            color=TEXT_MUTED,
+                            size=13,
+                        ),
+                        ft.Text(
+                            "Формат ключа: SP-XXXX-XXXX-XXXX",
+                            color=TEXT_MUTED,
+                            size=12,
+                            italic=True,
+                        ),
+                        ft.Divider(color=CARD_BORDER),
+                        key_field,
+                        status_text,
+                    ],
+                    spacing=10,
+                ),
                 width=440,
             ),
             actions=[
@@ -198,7 +236,8 @@ def main(page: ft.Page):
                     "✅ Активировать",
                     on_click=try_activate,
                     style=ft.ButtonStyle(
-                        bgcolor=ACCENT, color="white",
+                        bgcolor=ACCENT,
+                        color="white",
                         shape=ft.RoundedRectangleBorder(radius=8),
                     ),
                 ),
@@ -226,20 +265,32 @@ def main(page: ft.Page):
 
         def rebuild_grid():
             grid_container.controls.clear()
-            header = ft.Row([
-                ft.Container(width=60, padding=5),
-                *[ft.Container(
-                    content=ft.Text(d, weight="bold", color=TEXT_MAIN, size=14),
-                    width=170, padding=5, alignment=ft.Alignment.CENTER,
-                ) for d in DAY_NAMES],
-            ], spacing=4)
+            header = ft.Row(
+                [
+                    ft.Container(width=60, padding=5),
+                    *[
+                        ft.Container(
+                            content=ft.Text(d, weight="bold", color=TEXT_MAIN, size=14),
+                            width=170,
+                            padding=5,
+                            alignment=ft.Alignment.CENTER,
+                        )
+                        for d in DAY_NAMES
+                    ],
+                ],
+                spacing=4,
+            )
             grid_container.controls.append(header)
 
             for slot in range(7):
-                row_cells = [ft.Container(
-                    content=ft.Text(str(slot + 1), size=14, color=TEXT_MAIN),
-                    width=60, padding=5, alignment=ft.Alignment.CENTER,
-                )]
+                row_cells = [
+                    ft.Container(
+                        content=ft.Text(str(slot + 1), size=14, color=TEXT_MAIN),
+                        width=60,
+                        padding=5,
+                        alignment=ft.Alignment.CENTER,
+                    )
+                ]
                 for day in range(5):
 
                     def make_click(d, s):
@@ -251,11 +302,13 @@ def main(page: ft.Page):
                                     grid_container.update()
                                 except AssertionError:
                                     pass
+
                         return handler
 
                     def make_reason_change(d, s):
                         def handler(e):
                             unavailable[(d, s)] = e.control.value
+
                         return handler
 
                     def make_clear(d, s):
@@ -266,40 +319,49 @@ def main(page: ft.Page):
                                 grid_container.update()
                             except AssertionError:
                                 pass
+
                         return handler
 
                     if (day, slot) in unavailable:
                         cell = ft.Container(
-                            content=ft.Row([
-                                ft.TextField(
-                                    value=unavailable[(day, slot)],
-                                    hint_text="Причина…",
-                                    text_size=11,
-                                    border_color="#ef4444",
-                                    focused_border_color="#ef4444",
-                                    content_padding=ft.Padding.symmetric(
-                                        horizontal=6, vertical=2),
-                                    on_change=make_reason_change(day, slot),
-                                    expand=True,
-                                ),
-                                ft.IconButton(
-                                    ft.Icons.CLOSE, icon_size=14,
-                                    icon_color="#ef4444",
-                                    tooltip="Снять запрет",
-                                    on_click=make_clear(day, slot),
-                                    width=30,
-                                ),
-                            ], spacing=2,
-                               vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                            width=170, height=55,
+                            content=ft.Row(
+                                [
+                                    ft.TextField(
+                                        value=unavailable[(day, slot)],
+                                        hint_text="Причина…",
+                                        text_size=11,
+                                        border_color="#ef4444",
+                                        focused_border_color="#ef4444",
+                                        content_padding=ft.Padding.symmetric(
+                                            horizontal=6, vertical=2
+                                        ),
+                                        on_change=make_reason_change(day, slot),
+                                        expand=True,
+                                    ),
+                                    ft.IconButton(
+                                        ft.Icons.CLOSE,
+                                        icon_size=14,
+                                        icon_color="#ef4444",
+                                        tooltip="Снять запрет",
+                                        on_click=make_clear(day, slot),
+                                        width=30,
+                                    ),
+                                ],
+                                spacing=2,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            ),
+                            width=170,
+                            height=55,
                             bgcolor="#4a1e1e",
                             border=ft.Border.all(2, "#ef4444"),
-                            border_radius=6, padding=4,
+                            border_radius=6,
+                            padding=4,
                         )
                     else:
                         cell = ft.Container(
                             content=ft.Text("+", size=18, color="#64748b"),
-                            width=170, height=55,
+                            width=170,
+                            height=55,
                             bgcolor=CARD_BG,
                             border=ft.Border.all(1, CARD_BORDER),
                             border_radius=6,
@@ -330,29 +392,48 @@ def main(page: ft.Page):
             modal=True,
             title=ft.Text(f"🚫 Запрещённые слоты: {teacher['name']}", color=TEXT_MAIN),
             content=ft.Container(
-                content=ft.Column([
-                    ft.Container(
-                        content=ft.Column([
-                            ft.Text("🚫 Как это работает", size=14,
-                                    weight="bold", color=TEXT_MAIN),
-                            ft.Text("• Нажми «+» в клетке, чтобы запретить слот.\n"
-                                    "• Введи причину прямо в клетке.\n"
-                                    "• Нажми «✖» — чтобы снять запрет.",
-                                    size=12, color=TEXT_MUTED),
-                        ], spacing=2),
-                        bgcolor="#1e3a5f", padding=12, border_radius=8,
-                    ),
-                    ft.Divider(color=CARD_BORDER),
-                    grid_container,
-                ], spacing=8, scroll=ft.ScrollMode.AUTO),
-                width=1050, height=650,
+                content=ft.Column(
+                    [
+                        ft.Container(
+                            content=ft.Column(
+                                [
+                                    ft.Text(
+                                        "🚫 Как это работает",
+                                        size=14,
+                                        weight="bold",
+                                        color=TEXT_MAIN,
+                                    ),
+                                    ft.Text(
+                                        "• Нажми «+» в клетке, чтобы запретить слот.\n"
+                                        "• Введи причину прямо в клетке.\n"
+                                        "• Нажми «✖» — чтобы снять запрет.",
+                                        size=12,
+                                        color=TEXT_MUTED,
+                                    ),
+                                ],
+                                spacing=2,
+                            ),
+                            bgcolor="#1e3a5f",
+                            padding=12,
+                            border_radius=8,
+                        ),
+                        ft.Divider(color=CARD_BORDER),
+                        grid_container,
+                    ],
+                    spacing=8,
+                    scroll=ft.ScrollMode.AUTO,
+                ),
+                width=1050,
+                height=650,
             ),
             actions=[
                 ft.TextButton("Отмена", on_click=close_dialog),
                 ft.Button(
-                    "💾 Сохранить", on_click=save_and_close,
+                    "💾 Сохранить",
+                    on_click=save_and_close,
                     style=ft.ButtonStyle(
-                        bgcolor=ACCENT, color="white",
+                        bgcolor=ACCENT,
+                        color="white",
                         shape=ft.RoundedRectangleBorder(radius=8),
                     ),
                 ),
@@ -369,28 +450,44 @@ def main(page: ft.Page):
             return ft.Container()
 
         details = ft.Column(
-            [ft.Container(
-                content=ft.Column([
-                    ft.Row([
-                        ft.Text("⚠️", size=14),
-                        ft.Text(p.title, size=13, weight="bold", color="#f59e0b"),
-                    ], spacing=6),
-                    ft.Text(p.details, size=12, color=TEXT_MUTED),
-                ], spacing=4),
-                padding=8,
-                border=ft.Border.all(1, "#f59e0b"),
-                border_radius=8,
-                margin=ft.Margin.only(bottom=4),
-            ) for p in warnings],
-            spacing=4, visible=False,
+            [
+                ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Row(
+                                [
+                                    ft.Text("⚠️", size=14),
+                                    ft.Text(
+                                        p.title, size=13, weight="bold", color="#f59e0b"
+                                    ),
+                                ],
+                                spacing=6,
+                            ),
+                            ft.Text(p.details, size=12, color=TEXT_MUTED),
+                        ],
+                        spacing=4,
+                    ),
+                    padding=8,
+                    border=ft.Border.all(1, "#f59e0b"),
+                    border_radius=8,
+                    margin=ft.Margin.only(bottom=4),
+                )
+                for p in warnings
+            ],
+            spacing=4,
+            visible=False,
         )
 
         def toggle(e):
             details.visible = not details.visible
             arrow.content = ft.Icon(
-                ft.Icons.KEYBOARD_ARROW_DOWN if not details.visible
-                else ft.Icons.KEYBOARD_ARROW_UP,
-                color="#f59e0b", size=18,
+                (
+                    ft.Icons.KEYBOARD_ARROW_DOWN
+                    if not details.visible
+                    else ft.Icons.KEYBOARD_ARROW_UP
+                ),
+                color="#f59e0b",
+                size=18,
             )
             try:
                 details.update()
@@ -400,17 +497,29 @@ def main(page: ft.Page):
 
         arrow = ft.Container(
             content=ft.Icon(ft.Icons.KEYBOARD_ARROW_DOWN, color="#f59e0b", size=18),
-            on_click=toggle, ink=True, padding=4, border_radius=6,
+            on_click=toggle,
+            ink=True,
+            padding=4,
+            border_radius=6,
             tooltip="Показать / скрыть предупреждения",
         )
 
         header = ft.Container(
-            content=ft.Row([
-                ft.Text(f"⚠️ {len(warnings)} предупреждений",
-                        size=13, weight="bold", color="#f59e0b"),
-                arrow,
-            ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            on_click=toggle, ink=True,
+            content=ft.Row(
+                [
+                    ft.Text(
+                        f"⚠️ {len(warnings)} предупреждений",
+                        size=13,
+                        weight="bold",
+                        color="#f59e0b",
+                    ),
+                    arrow,
+                ],
+                spacing=6,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            on_click=toggle,
+            ink=True,
             padding=ft.Padding.symmetric(horizontal=10, vertical=4),
             border_radius=8,
         )
@@ -434,6 +543,7 @@ def main(page: ft.Page):
                 def handler(e):
                     data["teachers"][idx]["name"] = e.control.value
                     save_data(data)
+
                 return handler
 
             def make_name_submit(idx):
@@ -441,6 +551,7 @@ def main(page: ft.Page):
                     data["teachers"][idx]["name"] = e.control.value
                     save_data(data)
                     render_teachers()
+
                 return handler
 
             def make_del_handler(idx):
@@ -448,6 +559,7 @@ def main(page: ft.Page):
                     data["teachers"].pop(idx)
                     save_data(data)
                     render_teachers()
+
                 return handler
 
             def make_subj_selected(idx):
@@ -460,21 +572,26 @@ def main(page: ft.Page):
                         save_data(data)
                         render_teachers()
                     e.control.value = None
+
                 return handler
 
             name_field = ft.TextField(
-                value=t["name"], label="ФИО (Enter — обновить)",
+                value=t["name"],
+                label="ФИО (Enter — обновить)",
                 width=300,
                 on_change=make_name_handler(i),
                 on_submit=make_name_submit(i),
-                border_color=CARD_BORDER, focused_border_color=ACCENT,
+                border_color=CARD_BORDER,
+                focused_border_color=ACCENT,
             )
 
             subj_dropdown = ft.Dropdown(
-                label="➕ Добавить предмет", width=280,
+                label="➕ Добавить предмет",
+                width=280,
                 options=[ft.DropdownOption(key=s, text=s) for s in all_subjects],
                 on_select=make_subj_selected(i),
-                border_color=CARD_BORDER, focused_border_color=ACCENT,
+                border_color=CARD_BORDER,
+                focused_border_color=ACCENT,
             )
 
             chips = ft.Row(spacing=3, wrap=True)
@@ -485,6 +602,7 @@ def main(page: ft.Page):
                         data["teachers"][idx]["subjects"].remove(subj)
                         save_data(data)
                         render_teachers()
+
                     return handler
 
                 chips.controls.append(
@@ -507,44 +625,67 @@ def main(page: ft.Page):
             else:
                 block_tooltip = "Запрещённых слотов нет"
 
-            row = ft.Row([
-                ft.Container(
-                    content=ft.Text(teacher_badge(t["name"]),
-                                    size=20, weight="bold", color="white"),
-                    width=44, height=44, bgcolor=ACCENT,
-                    border_radius=22, alignment=ft.Alignment.CENTER,
-                ),
-                name_field,
-                subj_dropdown,
-                ft.Container(content=chips, width=420,
-                             padding=ft.Padding.only(left=10)),
-                ft.IconButton(
-                    ft.Icons.BLOCK,
-                    icon_color="#f59e0b" if unavailable_list else "#94a3b8",
-                    tooltip=("🚫 Запрещённые слоты\n"
-                             "Не ставить уроки учителю в эти часы.\n"
-                             "Нажми, чтобы настроить.\n\n" + block_tooltip),
-                    on_click=lambda e, idx=i: open_slots_dialog(idx),
-                ),
-                ft.IconButton(ft.Icons.DELETE, icon_color="red",
-                              on_click=make_del_handler(i)),
-            ], alignment=ft.MainAxisAlignment.START,
-               vertical_alignment=ft.CrossAxisAlignment.CENTER,
-               spacing=10)
+            row = ft.Row(
+                [
+                    ft.Container(
+                        content=ft.Text(
+                            teacher_badge(t["name"]),
+                            size=20,
+                            weight="bold",
+                            color="white",
+                        ),
+                        width=44,
+                        height=44,
+                        bgcolor=ACCENT,
+                        border_radius=22,
+                        alignment=ft.Alignment.CENTER,
+                    ),
+                    name_field,
+                    subj_dropdown,
+                    ft.Container(
+                        content=chips, width=420, padding=ft.Padding.only(left=10)
+                    ),
+                    ft.IconButton(
+                        ft.Icons.BLOCK,
+                        icon_color="#f59e0b" if unavailable_list else "#94a3b8",
+                        tooltip=(
+                            "🚫 Запрещённые слоты\n"
+                            "Не ставить уроки учителю в эти часы.\n"
+                            "Нажми, чтобы настроить.\n\n" + block_tooltip
+                        ),
+                        on_click=lambda e, idx=i: open_slots_dialog(idx),
+                    ),
+                    ft.IconButton(
+                        ft.Icons.DELETE, icon_color="red", on_click=make_del_handler(i)
+                    ),
+                ],
+                alignment=ft.MainAxisAlignment.START,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=10,
+            )
 
             teachers_list.controls.append(
-                ft.Container(content=row, bgcolor=CARD_BG,
-                             border=ft.Border.all(1, CARD_BORDER),
-                             border_radius=12, padding=15)
+                ft.Container(
+                    content=row,
+                    bgcolor=CARD_BG,
+                    border=ft.Border.all(1, CARD_BORDER),
+                    border_radius=12,
+                    padding=15,
+                )
             )
         page.update()
 
     def add_teacher(e):
         new_id = max([t["id"] for t in data["teachers"]], default=0) + 1
-        data["teachers"].insert(0, {
-            "id": new_id, "name": "Новый",
-            "subjects": [], "unavailable_slots": [],
-        })
+        data["teachers"].insert(
+            0,
+            {
+                "id": new_id,
+                "name": "Новый",
+                "subjects": [],
+                "unavailable_slots": [],
+            },
+        )
         save_data(data)
         render_teachers()
 
@@ -563,6 +704,7 @@ def main(page: ft.Page):
                     data["classes"][idx]["name"] = e.control.value
                     save_data(data)
                     render_subjects()
+
                 return handler
 
             def make_name_submit(idx):
@@ -571,6 +713,7 @@ def main(page: ft.Page):
                     save_data(data)
                     render_subjects()
                     render_classes()
+
                 return handler
 
             def make_stud_handler(idx):
@@ -580,6 +723,7 @@ def main(page: ft.Page):
                         save_data(data)
                     except ValueError:
                         pass
+
                 return handler
 
             def make_del_handler(idx):
@@ -592,35 +736,62 @@ def main(page: ft.Page):
                     save_data(data)
                     render_classes()
                     render_subjects()
+
                 return handler
 
-            card_content = ft.Column([
-                ft.Row([
-                    ft.Container(
-                        content=ft.Text(class_badge(c["name"]),
-                                        size=18, weight="bold", color="white"),
-                        width=50, height=50, bgcolor=ACCENT,
-                        border_radius=12, alignment=ft.Alignment.CENTER,
+            card_content = ft.Column(
+                [
+                    ft.Row(
+                        [
+                            ft.Container(
+                                content=ft.Text(
+                                    class_badge(c["name"]),
+                                    size=18,
+                                    weight="bold",
+                                    color="white",
+                                ),
+                                width=50,
+                                height=50,
+                                bgcolor=ACCENT,
+                                border_radius=12,
+                                alignment=ft.Alignment.CENTER,
+                            ),
+                            ft.IconButton(
+                                ft.Icons.DELETE,
+                                icon_color="red",
+                                on_click=make_del_handler(i),
+                            ),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     ),
-                    ft.IconButton(ft.Icons.DELETE, icon_color="red",
-                                  on_click=make_del_handler(i)),
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                ft.TextField(
-                    value=c["name"], label="Название (Enter — обновить)",
-                    on_change=make_name_handler(i),
-                    on_submit=make_name_submit(i),
-                    border_color=CARD_BORDER, focused_border_color=ACCENT,
-                ),
-                ft.TextField(value=str(c["students"]), label="Учеников",
-                             on_change=make_stud_handler(i),
-                             border_color=CARD_BORDER,
-                             focused_border_color=ACCENT),
-            ], spacing=8)
+                    ft.TextField(
+                        value=c["name"],
+                        label="Название (Enter — обновить)",
+                        on_change=make_name_handler(i),
+                        on_submit=make_name_submit(i),
+                        border_color=CARD_BORDER,
+                        focused_border_color=ACCENT,
+                    ),
+                    ft.TextField(
+                        value=str(c["students"]),
+                        label="Учеников",
+                        on_change=make_stud_handler(i),
+                        border_color=CARD_BORDER,
+                        focused_border_color=ACCENT,
+                    ),
+                ],
+                spacing=8,
+            )
 
             wrapper.controls.append(
-                ft.Container(content=card_content, bgcolor=CARD_BG,
-                             border=ft.Border.all(1, CARD_BORDER),
-                             border_radius=12, padding=15, width=300)
+                ft.Container(
+                    content=card_content,
+                    bgcolor=CARD_BG,
+                    border=ft.Border.all(1, CARD_BORDER),
+                    border_radius=12,
+                    padding=15,
+                    width=300,
+                )
             )
         page.update()
 
@@ -654,15 +825,19 @@ def main(page: ft.Page):
                         ]
                     save_data(data)
                     render_teachers()
+
                 return handler
 
             def make_hours_handler(idx, cname):
                 def handler(e):
                     try:
-                        data["subjects"][idx]["hours"][cname] = int(e.control.value or 0)
+                        data["subjects"][idx]["hours"][cname] = int(
+                            e.control.value or 0
+                        )
                         save_data(data)
                     except ValueError:
                         pass
+
                 return handler
 
             def make_del_handler(idx):
@@ -674,38 +849,58 @@ def main(page: ft.Page):
                     save_data(data)
                     render_subjects()
                     render_teachers()
+
                 return handler
 
             hours_inputs = []
             for cname in class_names:
-                hours_inputs.append(ft.Column([
-                    ft.Text(cname, size=12, color=TEXT_MUTED),
-                    ft.TextField(
-                        value=str(s["hours"].get(cname, 0)),
-                        width=70,
-                        on_change=make_hours_handler(i, cname),
-                        border_color=CARD_BORDER,
-                        focused_border_color=ACCENT,
-                    ),
-                ], spacing=2))
+                hours_inputs.append(
+                    ft.Column(
+                        [
+                            ft.Text(cname, size=12, color=TEXT_MUTED),
+                            ft.TextField(
+                                value=str(s["hours"].get(cname, 0)),
+                                width=70,
+                                on_change=make_hours_handler(i, cname),
+                                border_color=CARD_BORDER,
+                                focused_border_color=ACCENT,
+                            ),
+                        ],
+                        spacing=2,
+                    )
+                )
 
-            subjects_list.controls.append(ft.Container(
-                content=ft.Column([
-                    ft.Row([
-                        ft.TextField(value=s["name"], label="Предмет", width=250,
-                                     on_change=make_name_handler(i),
-                                     border_color=CARD_BORDER,
-                                     focused_border_color=ACCENT),
-                        ft.IconButton(ft.Icons.DELETE, icon_color="red",
-                                      on_click=make_del_handler(i)),
-                    ]),
-                    ft.Row(hours_inputs, wrap=True),
-                ]),
-                padding=15, bgcolor=CARD_BG,
-                border=ft.Border.all(1, CARD_BORDER),
-                border_radius=12,
-                margin=ft.Margin.only(bottom=10),
-            ))
+            subjects_list.controls.append(
+                ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Row(
+                                [
+                                    ft.TextField(
+                                        value=s["name"],
+                                        label="Предмет",
+                                        width=250,
+                                        on_change=make_name_handler(i),
+                                        border_color=CARD_BORDER,
+                                        focused_border_color=ACCENT,
+                                    ),
+                                    ft.IconButton(
+                                        ft.Icons.DELETE,
+                                        icon_color="red",
+                                        on_click=make_del_handler(i),
+                                    ),
+                                ]
+                            ),
+                            ft.Row(hours_inputs, wrap=True),
+                        ]
+                    ),
+                    padding=15,
+                    bgcolor=CARD_BG,
+                    border=ft.Border.all(1, CARD_BORDER),
+                    border_radius=12,
+                    margin=ft.Margin.only(bottom=10),
+                )
+            )
         page.update()
 
     def add_subject(e):
@@ -734,6 +929,7 @@ def main(page: ft.Page):
                             return
                     data["rooms"][idx][field] = val
                     save_data(data)
+
                 return handler
 
             def make_del_handler(idx):
@@ -741,45 +937,77 @@ def main(page: ft.Page):
                     data["rooms"].pop(idx)
                     save_data(data)
                     render_rooms()
+
                 return handler
 
-            card_content = ft.Column([
-                ft.Row([
-                    ft.Container(
-                        content=ft.Icon(ft.Icons.MEETING_ROOM, color="white"),
-                        width=50, height=50, bgcolor=ACCENT_2,
-                        border_radius=12, alignment=ft.Alignment.CENTER,
+            card_content = ft.Column(
+                [
+                    ft.Row(
+                        [
+                            ft.Container(
+                                content=ft.Icon(ft.Icons.MEETING_ROOM, color="white"),
+                                width=50,
+                                height=50,
+                                bgcolor=ACCENT_2,
+                                border_radius=12,
+                                alignment=ft.Alignment.CENTER,
+                            ),
+                            ft.IconButton(
+                                ft.Icons.DELETE,
+                                icon_color="red",
+                                on_click=make_del_handler(i),
+                            ),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     ),
-                    ft.IconButton(ft.Icons.DELETE, icon_color="red",
-                                  on_click=make_del_handler(i)),
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                ft.TextField(value=r["name"], label="Название",
-                             on_change=make_handler("name", i),
-                             border_color=CARD_BORDER,
-                             focused_border_color=ACCENT),
-                ft.TextField(value=str(r["capacity"]), label="Мест",
-                             on_change=make_handler("capacity", i),
-                             border_color=CARD_BORDER,
-                             focused_border_color=ACCENT),
-                ft.TextField(value=r["subject_specific"], label="Спец. для предмета",
-                             on_change=make_handler("subject_specific", i),
-                             border_color=CARD_BORDER,
-                             focused_border_color=ACCENT),
-            ], spacing=8)
+                    ft.TextField(
+                        value=r["name"],
+                        label="Название",
+                        on_change=make_handler("name", i),
+                        border_color=CARD_BORDER,
+                        focused_border_color=ACCENT,
+                    ),
+                    ft.TextField(
+                        value=str(r["capacity"]),
+                        label="Мест",
+                        on_change=make_handler("capacity", i),
+                        border_color=CARD_BORDER,
+                        focused_border_color=ACCENT,
+                    ),
+                    ft.TextField(
+                        value=r["subject_specific"],
+                        label="Спец. для предмета",
+                        on_change=make_handler("subject_specific", i),
+                        border_color=CARD_BORDER,
+                        focused_border_color=ACCENT,
+                    ),
+                ],
+                spacing=8,
+            )
 
             wrapper.controls.append(
-                ft.Container(content=card_content, bgcolor=CARD_BG,
-                             border=ft.Border.all(1, CARD_BORDER),
-                             border_radius=12, padding=15, width=300)
+                ft.Container(
+                    content=card_content,
+                    bgcolor=CARD_BG,
+                    border=ft.Border.all(1, CARD_BORDER),
+                    border_radius=12,
+                    padding=15,
+                    width=300,
+                )
             )
         page.update()
 
     def add_room(e):
         new_id = max([r["id"] for r in data["rooms"]], default=100) + 1
-        data["rooms"].insert(0, {
-            "id": new_id, "name": str(new_id),
-            "capacity": 30, "subject_specific": "",
-        })
+        data["rooms"].insert(
+            0,
+            {
+                "id": new_id,
+                "name": str(new_id),
+                "capacity": 30,
+                "subject_specific": "",
+            },
+        )
         save_data(data)
         render_rooms()
 
@@ -841,55 +1069,91 @@ def main(page: ft.Page):
                 ft.Text(f"Класс {cname}", size=14, weight="bold", color=TEXT_MAIN)
             )
 
-            header_cells = [ft.Container(
-                content=ft.Text("Урок", weight="bold", color=TEXT_MAIN),
-                expand=1, padding=8, alignment=ft.Alignment.CENTER,
-            )]
+            header_cells = [
+                ft.Container(
+                    content=ft.Text("Урок", weight="bold", color=TEXT_MAIN),
+                    expand=1,
+                    padding=8,
+                    alignment=ft.Alignment.CENTER,
+                )
+            ]
             for d in DAY_NAMES:
-                header_cells.append(ft.Container(
-                    content=ft.Text(d, weight="bold", color=TEXT_MAIN),
-                    expand=3, padding=8, alignment=ft.Alignment.CENTER,
-                    bgcolor=CARD_BG, border_radius=6,
-                ))
+                header_cells.append(
+                    ft.Container(
+                        content=ft.Text(d, weight="bold", color=TEXT_MAIN),
+                        expand=3,
+                        padding=8,
+                        alignment=ft.Alignment.CENTER,
+                        bgcolor=CARD_BG,
+                        border_radius=6,
+                    )
+                )
             rows = [ft.Row(header_cells, spacing=4)]
 
             for slot in range(7):
-                row_cells = [ft.Container(
-                    content=ft.Text(str(slot + 1), color=TEXT_MAIN),
-                    expand=1, padding=8, alignment=ft.Alignment.CENTER,
-                )]
+                row_cells = [
+                    ft.Container(
+                        content=ft.Text(str(slot + 1), color=TEXT_MAIN),
+                        expand=1,
+                        padding=8,
+                        alignment=ft.Alignment.CENTER,
+                    )
+                ]
                 for day in range(5):
                     l = find_lesson(cname, None, day, slot)
-                    is_selected = (selected_lesson["obj"] is l and l is not None)
+                    is_selected = selected_lesson["obj"] is l and l is not None
 
                     def make_cell_click(lesson, cls, d, s):
                         def handler(e):
                             move_lesson(lesson, cls, None, d, s)
+
                         return handler
 
                     if l:
                         border_color = "#facc15" if is_selected else "transparent"
                         border_width = 3 if is_selected else 0
-                        row_cells.append(ft.Container(
-                            content=ft.Column([
-                                ft.Text(l.subject, color="white", size=12,
-                                        weight="bold", text_align=ft.TextAlign.CENTER),
-                                ft.Text(f"каб.{l.room_id}", color="#f1f5f9",
-                                        size=10, text_align=ft.TextAlign.CENTER),
-                            ], spacing=0, alignment=ft.MainAxisAlignment.CENTER),
-                            expand=3, padding=8, alignment=ft.Alignment.CENTER,
-                            bgcolor=subject_color(l.subject), border_radius=8,
-                            border=ft.Border.all(border_width, border_color),
-                            on_click=make_cell_click(l, cname, day, slot),
-                            ink=True,
-                        ))
+                        row_cells.append(
+                            ft.Container(
+                                content=ft.Column(
+                                    [
+                                        ft.Text(
+                                            l.subject,
+                                            color="white",
+                                            size=12,
+                                            weight="bold",
+                                            text_align=ft.TextAlign.CENTER,
+                                        ),
+                                        ft.Text(
+                                            f"каб.{l.room_id}",
+                                            color="#f1f5f9",
+                                            size=10,
+                                            text_align=ft.TextAlign.CENTER,
+                                        ),
+                                    ],
+                                    spacing=0,
+                                    alignment=ft.MainAxisAlignment.CENTER,
+                                ),
+                                expand=3,
+                                padding=8,
+                                alignment=ft.Alignment.CENTER,
+                                bgcolor=subject_color(l.subject),
+                                border_radius=8,
+                                border=ft.Border.all(border_width, border_color),
+                                on_click=make_cell_click(l, cname, day, slot),
+                                ink=True,
+                            )
+                        )
                     else:
-                        row_cells.append(ft.Container(
-                            content=ft.Text("—", color="#64748b", size=12),
-                            expand=3, padding=8, alignment=ft.Alignment.CENTER,
-                            on_click=make_cell_click(None, cname, day, slot),
-                            ink=True,
-                        ))
+                        row_cells.append(
+                            ft.Container(
+                                content=ft.Text("—", color="#64748b", size=12),
+                                expand=3,
+                                padding=8,
+                                alignment=ft.Alignment.CENTER,
+                                on_click=make_cell_click(None, cname, day, slot),
+                                ink=True,
+                            )
+                        )
                 rows.append(ft.Row(row_cells, spacing=4))
 
             schedule_container.controls.append(ft.Column(rows, spacing=4))
@@ -911,59 +1175,123 @@ def main(page: ft.Page):
                 ft.Text(t_name, size=14, weight="bold", color=TEXT_MAIN)
             )
 
-            header_cells = [ft.Container(
-                content=ft.Text("Урок", weight="bold", color=TEXT_MAIN),
-                expand=1, padding=8, alignment=ft.Alignment.CENTER,
-            )]
+            header_cells = [
+                ft.Container(
+                    content=ft.Text("Урок", weight="bold", color=TEXT_MAIN),
+                    expand=1,
+                    padding=8,
+                    alignment=ft.Alignment.CENTER,
+                )
+            ]
             for d in DAY_NAMES:
-                header_cells.append(ft.Container(
-                    content=ft.Text(d, weight="bold", color=TEXT_MAIN),
-                    expand=3, padding=8, alignment=ft.Alignment.CENTER,
-                    bgcolor=CARD_BG, border_radius=6,
-                ))
+                header_cells.append(
+                    ft.Container(
+                        content=ft.Text(d, weight="bold", color=TEXT_MAIN),
+                        expand=3,
+                        padding=8,
+                        alignment=ft.Alignment.CENTER,
+                        bgcolor=CARD_BG,
+                        border_radius=6,
+                    )
+                )
             rows = [ft.Row(header_cells, spacing=4)]
 
             for slot in range(7):
-                row_cells = [ft.Container(
-                    content=ft.Text(str(slot + 1), color=TEXT_MAIN),
-                    expand=1, padding=8, alignment=ft.Alignment.CENTER,
-                )]
+                row_cells = [
+                    ft.Container(
+                        content=ft.Text(str(slot + 1), color=TEXT_MAIN),
+                        expand=1,
+                        padding=8,
+                        alignment=ft.Alignment.CENTER,
+                    )
+                ]
                 for day in range(5):
                     l = find_lesson(None, t_id, day, slot)
-                    is_selected = (selected_lesson["obj"] is l and l is not None)
+                    is_selected = selected_lesson["obj"] is l and l is not None
 
                     def make_cell_click(lesson, tid, d, s):
                         def handler(e):
                             move_lesson(lesson, None, tid, d, s)
+
                         return handler
 
                     if l:
                         border_color = "#facc15" if is_selected else "transparent"
                         border_width = 3 if is_selected else 0
-                        row_cells.append(ft.Container(
-                            content=ft.Column([
-                                ft.Text(l.class_name, color="white", size=12,
-                                        weight="bold", text_align=ft.TextAlign.CENTER),
-                                ft.Text(l.subject, color="#f1f5f9", size=10,
-                                        text_align=ft.TextAlign.CENTER),
-                            ], spacing=0, alignment=ft.MainAxisAlignment.CENTER),
-                            expand=3, padding=8, alignment=ft.Alignment.CENTER,
-                            bgcolor=subject_color(l.subject), border_radius=8,
-                            border=ft.Border.all(border_width, border_color),
-                            on_click=make_cell_click(l, t_id, day, slot),
-                            ink=True,
-                        ))
+                        row_cells.append(
+                            ft.Container(
+                                content=ft.Column(
+                                    [
+                                        ft.Text(
+                                            l.class_name,
+                                            color="white",
+                                            size=12,
+                                            weight="bold",
+                                            text_align=ft.TextAlign.CENTER,
+                                        ),
+                                        ft.Text(
+                                            l.subject,
+                                            color="#f1f5f9",
+                                            size=10,
+                                            text_align=ft.TextAlign.CENTER,
+                                        ),
+                                    ],
+                                    spacing=0,
+                                    alignment=ft.MainAxisAlignment.CENTER,
+                                ),
+                                expand=3,
+                                padding=8,
+                                alignment=ft.Alignment.CENTER,
+                                bgcolor=subject_color(l.subject),
+                                border_radius=8,
+                                border=ft.Border.all(border_width, border_color),
+                                on_click=make_cell_click(l, t_id, day, slot),
+                                ink=True,
+                            )
+                        )
                     else:
-                        row_cells.append(ft.Container(
-                            content=ft.Text("—", color="#64748b", size=12),
-                            expand=3, padding=8, alignment=ft.Alignment.CENTER,
-                            on_click=make_cell_click(None, t_id, day, slot),
-                            ink=True,
-                        ))
+                        row_cells.append(
+                            ft.Container(
+                                content=ft.Text("—", color="#64748b", size=12),
+                                expand=3,
+                                padding=8,
+                                alignment=ft.Alignment.CENTER,
+                                on_click=make_cell_click(None, t_id, day, slot),
+                                ink=True,
+                            )
+                        )
                 rows.append(ft.Row(row_cells, spacing=4))
 
             schedule_container.controls.append(ft.Column(rows, spacing=4))
             schedule_container.controls.append(ft.Divider(color=CARD_BORDER))
+
+    def export_schedule_to_excel(e):
+        """Экспорт текущего расписания в Excel."""
+        if not editable_schedule:
+            snack = ft.SnackBar(
+                content=ft.Text("❌ Сначала составьте расписание!"),
+                bgcolor="#ef4444",
+            )
+            page.overlay.append(snack)
+            snack.open = True
+            page.update()
+            return
+
+        import os
+        filepath = os.path.join(os.getcwd(), "Расписание.xlsx")
+
+        ok, message = export_to_excel(editable_schedule, data, filepath)
+
+        color = "#10b981" if ok else "#ef4444"
+        icon = "✅" if ok else "❌"
+        snack = ft.SnackBar(
+            content=ft.Text(f"{icon} {message}", color="white"),
+            bgcolor=color,
+        )
+        page.overlay.append(snack)
+        snack.open = True
+        page.update()
+
 
     def build_schedule(e):
         schedule_output.controls.clear()
@@ -973,53 +1301,77 @@ def main(page: ft.Page):
             if len(data["classes"]) > lic.DEMO_MAX_CLASSES:
                 schedule_output.controls.append(
                     ft.Container(
-                        content=ft.Column([
-                            ft.Text("🔓 Демо-версия", size=18,
-                                    weight="bold", color="#fbbf24"),
-                            ft.Text(
-                                f"В демо-версии можно составить расписание "
-                                f"не более чем для {lic.DEMO_MAX_CLASSES} классов.\n"
-                                f"Сейчас у вас классов: {len(data['classes'])}.\n\n"
-                                f"Чтобы снять ограничение, введите ключ активации.",
-                                size=13, color="#fde68a",
-                            ),
-                            ft.Button(
-                                "🔑 Ввести ключ активации",
-                                on_click=open_activation_dialog,
-                                style=ft.ButtonStyle(
-                                    bgcolor="#f59e0b", color="white",
-                                    padding=ft.Padding.symmetric(horizontal=20, vertical=12),
-                                    shape=ft.RoundedRectangleBorder(radius=8),
+                        content=ft.Column(
+                            [
+                                ft.Text(
+                                    "🔓 Демо-версия",
+                                    size=18,
+                                    weight="bold",
+                                    color="#fbbf24",
                                 ),
-                            ),
-                        ], spacing=10),
+                                ft.Text(
+                                    f"В демо-версии можно составить расписание "
+                                    f"не более чем для {lic.DEMO_MAX_CLASSES} классов.\n"
+                                    f"Сейчас у вас классов: {len(data['classes'])}.\n\n"
+                                    f"Чтобы снять ограничение, введите ключ активации.",
+                                    size=13,
+                                    color="#fde68a",
+                                ),
+                                ft.Button(
+                                    "🔑 Ввести ключ активации",
+                                    on_click=open_activation_dialog,
+                                    style=ft.ButtonStyle(
+                                        bgcolor="#f59e0b",
+                                        color="white",
+                                        padding=ft.Padding.symmetric(
+                                            horizontal=20, vertical=12
+                                        ),
+                                        shape=ft.RoundedRectangleBorder(radius=8),
+                                    ),
+                                ),
+                            ],
+                            spacing=10,
+                        ),
                         bgcolor="#78350f",
                         border=ft.Border.all(1, "#f59e0b"),
-                        border_radius=10, padding=20,
+                        border_radius=10,
+                        padding=20,
                     )
                 )
                 page.update()
                 return
 
         from advisor import analyze
+
         problems = analyze(data)
 
         errors = [p for p in problems if p.severity == "error"]
         warnings = [p for p in problems if p.severity == "warning"]
 
         schedule_output.controls.append(
-            ft.Row([
-                ft.Text("🔍 Анализ данных", size=22, weight="bold", color=TEXT_MAIN),
-                ft.Container(
-                    content=ft.Text(
-                        f"{len(errors)} ошибок · {len(warnings)} предупреждений",
-                        size=12, color="white",
+            ft.Row(
+                [
+                    ft.Text(
+                        "🔍 Анализ данных", size=22, weight="bold", color=TEXT_MAIN
                     ),
-                    bgcolor="#ef4444" if errors else ("#f59e0b" if warnings else "#10b981"),
-                    padding=ft.Padding.symmetric(horizontal=10, vertical=4),
-                    border_radius=20,
-                ),
-            ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+                    ft.Container(
+                        content=ft.Text(
+                            f"{len(errors)} ошибок · {len(warnings)} предупреждений",
+                            size=12,
+                            color="white",
+                        ),
+                        bgcolor=(
+                            "#ef4444"
+                            if errors
+                            else ("#f59e0b" if warnings else "#10b981")
+                        ),
+                        padding=ft.Padding.symmetric(horizontal=10, vertical=4),
+                        border_radius=20,
+                    ),
+                ],
+                spacing=12,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            )
         )
 
         for p in problems:
@@ -1028,24 +1380,33 @@ def main(page: ft.Page):
 
             color = "#ef4444"
             block_controls = [
-                ft.Row([
-                    ft.Text("❌", size=18),
-                    ft.Text(p.title, size=16, weight="bold", color=color),
-                ], spacing=8),
+                ft.Row(
+                    [
+                        ft.Text("❌", size=18),
+                        ft.Text(p.title, size=16, weight="bold", color=color),
+                    ],
+                    spacing=8,
+                ),
                 ft.Text(p.details, size=13, color=TEXT_MUTED),
             ]
             if p.recommendations:
-                block_controls.append(ft.Column([
-                    ft.Text(f"💡 {r}", size=13, color=TEXT_MAIN)
-                    for r in p.recommendations
-                ], spacing=4))
+                block_controls.append(
+                    ft.Column(
+                        [
+                            ft.Text(f"💡 {r}", size=13, color=TEXT_MAIN)
+                            for r in p.recommendations
+                        ],
+                        spacing=4,
+                    )
+                )
 
             schedule_output.controls.append(
                 ft.Container(
                     content=ft.Column(block_controls, spacing=8),
                     bgcolor=CARD_BG,
                     border=ft.Border.all(1, color),
-                    border_radius=10, padding=15,
+                    border_radius=10,
+                    padding=15,
                     margin=ft.Margin.only(bottom=8),
                 )
             )
@@ -1053,8 +1414,12 @@ def main(page: ft.Page):
         if errors:
             schedule_output.controls.append(
                 ft.Container(
-                    content=ft.Text("⚠️ Исправь ошибки выше и нажми «Составить» снова.",
-                                    size=15, weight="bold", color="#ef4444"),
+                    content=ft.Text(
+                        "⚠️ Исправь ошибки выше и нажми «Составить» снова.",
+                        size=15,
+                        weight="bold",
+                        color="#ef4444",
+                    ),
                     padding=15,
                 )
             )
@@ -1064,19 +1429,31 @@ def main(page: ft.Page):
         schedule_output.controls.append(ft.Divider(color=CARD_BORDER, height=20))
 
         teachers = [
-            Teacher(t["id"], t["name"], t["subjects"],
-                    [tuple(x) for x in t.get("unavailable_slots", [])])
-            for t in data["teachers"] if t["subjects"]
+            Teacher(
+                t["id"],
+                t["name"],
+                t["subjects"],
+                [tuple(x) for x in t.get("unavailable_slots", [])],
+            )
+            for t in data["teachers"]
+            if t["subjects"]
         ]
-        classes = [SchoolClass(c["id"], c["name"], c["students"]) for c in data["classes"]]
+        classes = [
+            SchoolClass(c["id"], c["name"], c["students"]) for c in data["classes"]
+        ]
         subjects = [Subject(s["name"], s["hours"]) for s in data["subjects"]]
-        rooms = [Room(r["id"], r["name"], r["capacity"], r["subject_specific"] or None)
-                 for r in data["rooms"]]
+        rooms = [
+            Room(r["id"], r["name"], r["capacity"], r["subject_specific"] or None)
+            for r in data["rooms"]
+        ]
 
         if not teachers or not classes or not subjects or not rooms:
             schedule_output.controls.append(
-                ft.Text("Заполни все разделы: учителя, классы, предметы, кабинеты.",
-                        color="red", size=16)
+                ft.Text(
+                    "Заполни все разделы: учителя, классы, предметы, кабинеты.",
+                    color="red",
+                    size=16,
+                )
             )
             page.update()
             return
@@ -1087,23 +1464,36 @@ def main(page: ft.Page):
         if not ok:
             schedule_output.controls.append(
                 ft.Container(
-                    content=ft.Column([
-                        ft.Text("🧩 Комбинаторная проблема", size=16,
-                                weight="bold", color="#ef4444"),
-                        ft.Text(message, size=13, color=TEXT_MUTED),
-                        ft.Text("Что можно попробовать:", size=13,
-                                weight="bold", color=TEXT_MAIN),
-                        ft.Text(
-                            "• Уменьшить нагрузку у самых загруженных классов.\n"
-                            "• Добавить ещё одного учителя по «узким» предметам.\n"
-                            "• Добавить кабинеты, если их меньше, чем классов.\n"
-                            "• Снять запреты на слоты у учителей, если они есть.",
-                            size=13, color=TEXT_MAIN,
-                        ),
-                    ], spacing=8),
+                    content=ft.Column(
+                        [
+                            ft.Text(
+                                "🧩 Комбинаторная проблема",
+                                size=16,
+                                weight="bold",
+                                color="#ef4444",
+                            ),
+                            ft.Text(message, size=13, color=TEXT_MUTED),
+                            ft.Text(
+                                "Что можно попробовать:",
+                                size=13,
+                                weight="bold",
+                                color=TEXT_MAIN,
+                            ),
+                            ft.Text(
+                                "• Уменьшить нагрузку у самых загруженных классов.\n"
+                                "• Добавить ещё одного учителя по «узким» предметам.\n"
+                                "• Добавить кабинеты, если их меньше, чем классов.\n"
+                                "• Снять запреты на слоты у учителей, если они есть.",
+                                size=13,
+                                color=TEXT_MAIN,
+                            ),
+                        ],
+                        spacing=8,
+                    ),
                     bgcolor=CARD_BG,
                     border=ft.Border.all(1, "#ef4444"),
-                    border_radius=10, padding=15,
+                    border_radius=10,
+                    padding=15,
                 )
             )
             page.update()
@@ -1112,17 +1502,20 @@ def main(page: ft.Page):
         editable_schedule.clear()
         editable_schedule.extend(scheduler.schedule)
 
-        header_row = [ft.Text("✅ Расписание составлено!",
-                              color="green", size=18)]
+        header_row = [ft.Text("✅ Расписание составлено!", color="green", size=18)]
         if warnings:
             header_row.append(build_warnings_block(warnings))
         header_row.append(
-            ft.Text("(клик по уроку → клик по клетке — переместить)",
-                    color=TEXT_MUTED, size=12)
+            ft.Text(
+                "(клик по уроку → клик по клетке — переместить)",
+                color=TEXT_MUTED,
+                size=12,
+            )
         )
         schedule_output.controls.append(
-            ft.Row(header_row, spacing=15,
-                   vertical_alignment=ft.CrossAxisAlignment.CENTER)
+            ft.Row(
+                header_row, spacing=15, vertical_alignment=ft.CrossAxisAlignment.CENTER
+            )
         )
 
         all_subj_names = sorted(set(l.subject for l in editable_schedule))
@@ -1130,19 +1523,26 @@ def main(page: ft.Page):
             legend_items = []
             for sname in all_subj_names:
                 legend_items.append(
-                    ft.Row([
-                        ft.Container(width=12, height=12,
-                                     bgcolor=subject_color(sname),
-                                     border_radius=3),
-                        ft.Text(sname, color=TEXT_MUTED, size=11),
-                    ], spacing=4)
+                    ft.Row(
+                        [
+                            ft.Container(
+                                width=12,
+                                height=12,
+                                bgcolor=subject_color(sname),
+                                border_radius=3,
+                            ),
+                            ft.Text(sname, color=TEXT_MUTED, size=11),
+                        ],
+                        spacing=4,
+                    )
                 )
             schedule_output.controls.append(
                 ft.Container(
                     content=ft.Row(legend_items, spacing=15, wrap=True),
                     bgcolor=CARD_BG,
                     border=ft.Border.all(1, CARD_BORDER),
-                    border_radius=8, padding=10,
+                    border_radius=8,
+                    padding=10,
                     margin=ft.Margin.only(top=8, bottom=10),
                 )
             )
@@ -1160,14 +1560,16 @@ def main(page: ft.Page):
             expand=True,
             controls=[
                 ft.Container(
-                    content=ft.TabBar(tabs=[
-                        ft.Tab(label="📅 Расписание"),
-                        ft.Tab(label="👩‍🏫 Учителя"),
-                        ft.Tab(label="🏫 Классы"),
-                        ft.Tab(label="📚 Предметы"),
-                        ft.Tab(label="🚪 Кабинеты"),
-                        ft.Tab(label="❓ Справка"),
-                    ]),
+                    content=ft.TabBar(
+                        tabs=[
+                            ft.Tab(label="📅 Расписание"),
+                            ft.Tab(label="👩‍🏫 Учителя"),
+                            ft.Tab(label="🏫 Классы"),
+                            ft.Tab(label="📚 Предметы"),
+                            ft.Tab(label="🚪 Кабинеты"),
+                            ft.Tab(label="❓ Справка"),
+                        ]
+                    ),
                     bgcolor=CARD_BG,
                     padding=ft.Padding.symmetric(horizontal=20, vertical=8),
                 ),
@@ -1175,132 +1577,281 @@ def main(page: ft.Page):
                     expand=True,
                     controls=[
                         ft.Container(
-                            content=ft.Column([
-                                page_title("Расписание", "Составь и посмотри готовое расписание"),
-                                ft.Button(
-                                    "🚀 Составить расписание",
-                                    on_click=build_schedule,
-                                    style=ft.ButtonStyle(
-                                        bgcolor=ACCENT, color="white",
-                                        padding=ft.Padding.symmetric(horizontal=24, vertical=18),
-                                        shape=ft.RoundedRectangleBorder(radius=10),
+                            content=ft.Column(
+                                [
+                                    page_title(
+                                        "Расписание",
+                                        "Составь и посмотри готовое расписание",
                                     ),
-                                ),
-                                schedule_output,
-                            ], expand=True, scroll=ft.ScrollMode.AUTO),
-                            padding=30, expand=True, bgcolor=BG,
+                                    ft.Row(
+                                        [
+                                            ft.Button(
+                                                "🚀 Составить расписание",
+                                                on_click=build_schedule,
+                                                style=ft.ButtonStyle(
+                                                    bgcolor=ACCENT,
+                                                    color="white",
+                                                    padding=ft.Padding.symmetric(
+                                                        horizontal=24, vertical=18
+                                                    ),
+                                                    shape=ft.RoundedRectangleBorder(
+                                                        radius=10
+                                                    ),
+                                                ),
+                                            ),
+                                            ft.Button(
+                                                "📊 Экспорт в Excel",
+                                                on_click=export_schedule_to_excel,
+                                                style=ft.ButtonStyle(
+                                                    bgcolor="#10b981",
+                                                    color="white",
+                                                    padding=ft.Padding.symmetric(
+                                                        horizontal=24, vertical=18
+                                                    ),
+                                                    shape=ft.RoundedRectangleBorder(
+                                                        radius=10
+                                                    ),
+                                                ),
+                                            ),
+                                        ],
+                                        spacing=15,
+                                    ),
+                                    schedule_output,
+                                ],
+                                expand=True,
+                                scroll=ft.ScrollMode.AUTO,
+                            ),
+                            padding=30,
+                            expand=True,
+                            bgcolor=BG,
                         ),
                         ft.Container(
-                            content=ft.Column([
-                                page_title("Учителя", "Список и предметы"),
-                                ft.Button(
-                                    "➕ Добавить учителя", on_click=add_teacher,
-                                    style=ft.ButtonStyle(
-                                        bgcolor=ACCENT, color="white",
-                                        padding=ft.Padding.symmetric(horizontal=20, vertical=14),
-                                        shape=ft.RoundedRectangleBorder(radius=10),
+                            content=ft.Column(
+                                [
+                                    page_title("Учителя", "Список и предметы"),
+                                    ft.Button(
+                                        "➕ Добавить учителя",
+                                        on_click=add_teacher,
+                                        style=ft.ButtonStyle(
+                                            bgcolor=ACCENT,
+                                            color="white",
+                                            padding=ft.Padding.symmetric(
+                                                horizontal=20, vertical=14
+                                            ),
+                                            shape=ft.RoundedRectangleBorder(radius=10),
+                                        ),
                                     ),
-                                ),
-                                teachers_list,
-                            ], expand=True, scroll=ft.ScrollMode.AUTO),
-                            padding=30, expand=True, bgcolor=BG,
+                                    teachers_list,
+                                ],
+                                expand=True,
+                                scroll=ft.ScrollMode.AUTO,
+                            ),
+                            padding=30,
+                            expand=True,
+                            bgcolor=BG,
                         ),
                         ft.Container(
-                            content=ft.Column([
-                                page_title("Классы", "Классы и количество учеников"),
-                                ft.Button(
-                                    "➕ Добавить класс", on_click=add_class,
-                                    style=ft.ButtonStyle(
-                                        bgcolor=ACCENT, color="white",
-                                        padding=ft.Padding.symmetric(horizontal=20, vertical=14),
-                                        shape=ft.RoundedRectangleBorder(radius=10),
+                            content=ft.Column(
+                                [
+                                    page_title(
+                                        "Классы", "Классы и количество учеников"
                                     ),
-                                ),
-                                classes_list,
-                            ], expand=True, scroll=ft.ScrollMode.AUTO),
-                            padding=30, expand=True, bgcolor=BG,
+                                    ft.Button(
+                                        "➕ Добавить класс",
+                                        on_click=add_class,
+                                        style=ft.ButtonStyle(
+                                            bgcolor=ACCENT,
+                                            color="white",
+                                            padding=ft.Padding.symmetric(
+                                                horizontal=20, vertical=14
+                                            ),
+                                            shape=ft.RoundedRectangleBorder(radius=10),
+                                        ),
+                                    ),
+                                    classes_list,
+                                ],
+                                expand=True,
+                                scroll=ft.ScrollMode.AUTO,
+                            ),
+                            padding=30,
+                            expand=True,
+                            bgcolor=BG,
                         ),
                         ft.Container(
-                            content=ft.Column([
-                                page_title("Предметы", "Нагрузка в часах по классам"),
-                                ft.Button(
-                                    "➕ Добавить предмет", on_click=add_subject,
-                                    style=ft.ButtonStyle(
-                                        bgcolor=ACCENT, color="white",
-                                        padding=ft.Padding.symmetric(horizontal=20, vertical=14),
-                                        shape=ft.RoundedRectangleBorder(radius=10),
+                            content=ft.Column(
+                                [
+                                    page_title(
+                                        "Предметы", "Нагрузка в часах по классам"
                                     ),
-                                ),
-                                subjects_list,
-                            ], expand=True, scroll=ft.ScrollMode.AUTO),
-                            padding=30, expand=True, bgcolor=BG,
+                                    ft.Button(
+                                        "➕ Добавить предмет",
+                                        on_click=add_subject,
+                                        style=ft.ButtonStyle(
+                                            bgcolor=ACCENT,
+                                            color="white",
+                                            padding=ft.Padding.symmetric(
+                                                horizontal=20, vertical=14
+                                            ),
+                                            shape=ft.RoundedRectangleBorder(radius=10),
+                                        ),
+                                    ),
+                                    subjects_list,
+                                ],
+                                expand=True,
+                                scroll=ft.ScrollMode.AUTO,
+                            ),
+                            padding=30,
+                            expand=True,
+                            bgcolor=BG,
                         ),
                         ft.Container(
-                            content=ft.Column([
-                                page_title("Кабинеты", "Аудитории и вместимость"),
-                                ft.Button(
-                                    "➕ Добавить кабинет", on_click=add_room,
-                                    style=ft.ButtonStyle(
-                                        bgcolor=ACCENT, color="white",
-                                        padding=ft.Padding.symmetric(horizontal=20, vertical=14),
-                                        shape=ft.RoundedRectangleBorder(radius=10),
+                            content=ft.Column(
+                                [
+                                    page_title("Кабинеты", "Аудитории и вместимость"),
+                                    ft.Button(
+                                        "➕ Добавить кабинет",
+                                        on_click=add_room,
+                                        style=ft.ButtonStyle(
+                                            bgcolor=ACCENT,
+                                            color="white",
+                                            padding=ft.Padding.symmetric(
+                                                horizontal=20, vertical=14
+                                            ),
+                                            shape=ft.RoundedRectangleBorder(radius=10),
+                                        ),
                                     ),
-                                ),
-                                rooms_list,
-                            ], expand=True, scroll=ft.ScrollMode.AUTO),
-                            padding=30, expand=True, bgcolor=BG,
+                                    rooms_list,
+                                ],
+                                expand=True,
+                                scroll=ft.ScrollMode.AUTO,
+                            ),
+                            padding=30,
+                            expand=True,
+                            bgcolor=BG,
                         ),
                         ft.Container(
-                            content=ft.Column([
-                                page_title("Справка", "Правила и ограничения"),
-                                ft.Text("Ниже — что можно и нельзя делать, чтобы расписание составлялось корректно.",
-                                        color=TEXT_MUTED, size=13),
-                                ft.Divider(color=CARD_BORDER),
-                                ft.Text("🔑 Лицензия", size=18, weight="bold", color=TEXT_MAIN),
-                                ft.Text("• Демо-версия: не более 5 классов в расписании.\n"
+                            content=ft.Column(
+                                [
+                                    page_title("Справка", "Правила и ограничения"),
+                                    ft.Text(
+                                        "Ниже — что можно и нельзя делать, чтобы расписание составлялось корректно.",
+                                        color=TEXT_MUTED,
+                                        size=13,
+                                    ),
+                                    ft.Divider(color=CARD_BORDER),
+                                    ft.Text(
+                                        "🔑 Лицензия",
+                                        size=18,
+                                        weight="bold",
+                                        color=TEXT_MAIN,
+                                    ),
+                                    ft.Text(
+                                        "• Демо-версия: не более 5 классов в расписании.\n"
                                         "• Полная версия: без ограничений.\n"
                                         "• Ключ активации: формат SP-XXXX-XXXX-XXXX.\n"
                                         "• Ключ вводится один раз, хранится в системе.\n"
                                         "• При обновлении программы ключ сохраняется.",
-                                        color=TEXT_MAIN, size=13),
-                                ft.Divider(color=CARD_BORDER),
-                                ft.Text("📌 Общие правила", size=18, weight="bold", color=TEXT_MAIN),
-                                ft.Text("• Всего в неделе: 5 дней × 7 уроков = 35 слотов на класс.\n"
+                                        color=TEXT_MAIN,
+                                        size=13,
+                                    ),
+                                    ft.Divider(color=CARD_BORDER),
+                                    ft.Text(
+                                        "📌 Общие правила",
+                                        size=18,
+                                        weight="bold",
+                                        color=TEXT_MAIN,
+                                    ),
+                                    ft.Text(
+                                        "• Всего в неделе: 5 дней × 7 уроков = 35 слотов на класс.\n"
                                         "• Сумма часов по всем предметам у класса не может превышать 35.",
-                                        color=TEXT_MAIN, size=13),
-                                ft.Divider(color=CARD_BORDER),
-                                ft.Text("👩‍🏫 Учителя", size=18, weight="bold", color=TEXT_MAIN),
-                                ft.Text("• У каждого предмета должен быть хотя бы один учитель.\n"
+                                        color=TEXT_MAIN,
+                                        size=13,
+                                    ),
+                                    ft.Divider(color=CARD_BORDER),
+                                    ft.Text(
+                                        "👩‍🏫 Учителя",
+                                        size=18,
+                                        weight="bold",
+                                        color=TEXT_MAIN,
+                                    ),
+                                    ft.Text(
+                                        "• У каждого предмета должен быть хотя бы один учитель.\n"
                                         "• 🚫 Запрещённые слоты — нажми на иконку 🚫 рядом с учителем.",
-                                        color=TEXT_MAIN, size=13),
-                                ft.Divider(color=CARD_BORDER),
-                                ft.Text("🏫 Классы", size=18, weight="bold", color=TEXT_MAIN),
-                                ft.Text("• Новый класс автоматически появляется во всех предметах с 0 часов.",
-                                        color=TEXT_MAIN, size=13),
-                                ft.Divider(color=CARD_BORDER),
-                                ft.Text("📚 Предметы", size=18, weight="bold", color=TEXT_MAIN),
-                                ft.Text("• 0 часов = предмет не изучается классом.",
-                                        color=TEXT_MAIN, size=13),
-                                ft.Divider(color=CARD_BORDER),
-                                ft.Text("🚪 Кабинеты", size=18, weight="bold", color=TEXT_MAIN),
-                                ft.Text("• В одном кабинете не могут идти два урока одновременно.",
-                                        color=TEXT_MAIN, size=13),
-                                ft.Divider(color=CARD_BORDER),
-                                ft.Text("✏️ Редактирование расписания",
-                                        size=18, weight="bold", color=TEXT_MAIN),
-                                ft.Text("• Клик по уроку — выделить его.\n"
+                                        color=TEXT_MAIN,
+                                        size=13,
+                                    ),
+                                    ft.Divider(color=CARD_BORDER),
+                                    ft.Text(
+                                        "🏫 Классы",
+                                        size=18,
+                                        weight="bold",
+                                        color=TEXT_MAIN,
+                                    ),
+                                    ft.Text(
+                                        "• Новый класс автоматически появляется во всех предметах с 0 часов.",
+                                        color=TEXT_MAIN,
+                                        size=13,
+                                    ),
+                                    ft.Divider(color=CARD_BORDER),
+                                    ft.Text(
+                                        "📚 Предметы",
+                                        size=18,
+                                        weight="bold",
+                                        color=TEXT_MAIN,
+                                    ),
+                                    ft.Text(
+                                        "• 0 часов = предмет не изучается классом.",
+                                        color=TEXT_MAIN,
+                                        size=13,
+                                    ),
+                                    ft.Divider(color=CARD_BORDER),
+                                    ft.Text(
+                                        "🚪 Кабинеты",
+                                        size=18,
+                                        weight="bold",
+                                        color=TEXT_MAIN,
+                                    ),
+                                    ft.Text(
+                                        "• В одном кабинете не могут идти два урока одновременно.",
+                                        color=TEXT_MAIN,
+                                        size=13,
+                                    ),
+                                    ft.Divider(color=CARD_BORDER),
+                                    ft.Text(
+                                        "✏️ Редактирование расписания",
+                                        size=18,
+                                        weight="bold",
+                                        color=TEXT_MAIN,
+                                    ),
+                                    ft.Text(
+                                        "• Клик по уроку — выделить его.\n"
                                         "• Клик по пустой клетке — переместить урок.\n"
                                         "• Клик по другому уроку — поменять уроки местами.",
-                                        color=TEXT_MAIN, size=13),
-                                ft.Divider(color=CARD_BORDER),
-                                ft.Text("⚠️ Если расписание не составляется", size=18, weight="bold", color=TEXT_MAIN),
-                                ft.Text("1. Проверь, что у каждого предмета есть учитель.\n"
+                                        color=TEXT_MAIN,
+                                        size=13,
+                                    ),
+                                    ft.Divider(color=CARD_BORDER),
+                                    ft.Text(
+                                        "⚠️ Если расписание не составляется",
+                                        size=18,
+                                        weight="bold",
+                                        color=TEXT_MAIN,
+                                    ),
+                                    ft.Text(
+                                        "1. Проверь, что у каждого предмета есть учитель.\n"
                                         "2. Проверь, что сумма часов у класса ≤ 35.\n"
                                         "3. Добавь учителей или кабинеты.\n"
                                         "4. Уменьши нагрузку у проблемных классов.",
-                                        color=TEXT_MAIN, size=13),
-                            ], expand=True, scroll=ft.ScrollMode.AUTO),
-                            padding=30, expand=True, bgcolor=BG,
+                                        color=TEXT_MAIN,
+                                        size=13,
+                                    ),
+                                ],
+                                expand=True,
+                                scroll=ft.ScrollMode.AUTO,
+                            ),
+                            padding=30,
+                            expand=True,
+                            bgcolor=BG,
                         ),
                     ],
                 ),
@@ -1311,10 +1862,14 @@ def main(page: ft.Page):
     # Баннер демо + вкладки — вертикально
     page.add(
         ft.Container(
-            content=ft.Column([
-                demo_banner,
-                tabs,
-            ], expand=True, spacing=0),
+            content=ft.Column(
+                [
+                    demo_banner,
+                    tabs,
+                ],
+                expand=True,
+                spacing=0,
+            ),
             bgcolor=BG,
             expand=True,
         )
