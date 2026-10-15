@@ -59,3 +59,12 @@ school_data.json
 # Excel
 *.xlsx
 *.xls
+
+# Excel
+*.xlsx
+*.xls
+~$*.xlsx
+
+# Тестовые файлы
+test_export.py
+test_*.py
