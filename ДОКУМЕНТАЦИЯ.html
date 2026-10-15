@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>SchoolPlanner — Документация</title>
+<style>
+    body {
+        font-family: -apple-system, "Segoe UI", Arial, sans-serif;
+        max-width: 900px;
+        margin: 40px auto;
+        padding: 20px;
+        line-height: 1.6;
+        color: #1e293b;
+        background: #f8fafc;
+    }
+    h1 {
+        color: #6366f1;
+        border-bottom: 3px solid #6366f1;
+        padding-bottom: 10px;
+    }
+    h2 {
+        color: #334155;
+        margin-top: 40px;
+        border-bottom: 1px solid #cbd5e1;
+        padding-bottom: 5px;
+    }
+    h3 {
+        color: #475569;
+        margin-top: 25px;
+    }
+    table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 15px 0;
+        background: white;
+    }
+    th, td {
+        border: 1px solid #cbd5e1;
+        padding: 8px 12px;
+        text-align: left;
+    }
+    th {
+        background: #6366f1;
+        color: white;
+    }
+    tr:nth-child(even) {
+        background: #f1f5f9;
+    }
+    code, pre {
+        background: #1e293b;
+        color: #f1f5f9;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-family: "Consolas", "Courier New", monospace;
+        font-size: 13px;
+    }
+    pre {
+        padding: 15px;
+        overflow-x: auto;
+        display: block;
+    }
+    ul, ol {
+        padding-left: 25px;
+    }
+    li {
+        margin: 5px 0;
+    }
+    hr {
+        border: none;
+        border-top: 2px dashed #cbd5e1;
+        margin: 30px 0;
+    }
+    .version {
+        background: #6366f1;
+        color: white;
+        padding: 15px;
+        border-radius: 8px;
+        text-align: center;
+        font-size: 14px;
+        margin-bottom: 30px;
+    }
+</style>
+</head>
+<body>
+
+<div class="version">
+    <strong>SchoolPlanner</strong> — Документация проекта<br>
+    Версия: v2.1.0 | Дата: Октябрь 2026
+</div>
+
+<h1>SchoolPlanner — Документация проекта</h1>
+
+<p><strong>Версия:</strong> v2.1.0<br>
+<strong>Дата:</strong> Октябрь 2026<br>
+<strong>Автор:</strong> [Алексей Волков, г. Тверь]</p>
+
+<hr>
+
+<h2>1. Введение</h2>
+
+<h3>1.1. Что это за программа</h3>
+<p><strong>SchoolPlanner</strong> — десктопное приложение для составления школьного расписания. Программа автоматически распределяет уроки по дням недели с учётом множества ограничений: занятости учителей, кабинетов, методических дней, нагрузки по классам.</p>
+
+<h3>1.2. Для кого</h3>
+<ul>
+    <li><strong>Завучи</strong> — для составления расписания на четверть или год.</li>
+    <li><strong>Директора</strong> — для контроля нагрузки.</li>
+    <li><strong>Учителя</strong> — для просмотра своего расписания.</li>
+</ul>
+
+<h3>1.3. Ключевые возможности</h3>
+<ul>
+    <li>📅 <strong>Автоматическое составление расписания</strong> — на базе OR-Tools CP-SAT.</li>
+    <li>👩‍🏫 <strong>Учителя</strong> — ФИО, предметы, запрещённые слоты.</li>
+    <li>🏫 <strong>Классы</strong> — название, количество учеников.</li>
+    <li>📚 <strong>Предметы</strong> — часы по каждому классу.</li>
+    <li>🚪 <strong>Кабинеты</strong> — вместимость, спец. кабинеты.</li>
+    <li>🚫 <strong>Запрещённые слоты</strong> — учитель не может вести урок в это время.</li>
+    <li>🔍 <strong>Умный советчик</strong> — подсказывает, что не так до составления.</li>
+    <li>✏️ <strong>Редактирование расписания</strong> — клик по уроку → клик по клетке.</li>
+    <li>🎨 <strong>Цветные ячейки</strong> — каждый предмет своим цветом.</li>
+    <li>📊 <strong>Экспорт в Excel</strong> — все данные и расписание в один файл .xlsx.</li>
+    <li>🔑 <strong>Демо-версия</strong> — до 5 классов бесплатно, полная — по ключу.</li>
+</ul>
+
+<h3>1.4. Системные требования</h3>
+<ul>
+    <li><strong>ОС:</strong> Windows 10/11 (64-бит)</li>
+    <li><strong>ОЗУ:</strong> 4 ГБ</li>
+    <li><strong>Интернет:</strong> не требуется</li>
+    <li><strong>Установка:</strong> не требуется (один .exe)</li>
+</ul>
+
+<hr>
+
+<h2>2. Технологии</h2>
+
+<h3>2.1. Язык и библиотеки</h3>
+<table>
+    <tr><th>Технология</th><th>Версия</th><th>Зачем</th></tr>
+    <tr><td>Python</td><td>3.14</td><td>Язык разработки</td></tr>
+    <tr><td>Flet</td><td>1.0+</td><td>UI-фреймворк</td></tr>
+    <tr><td>OR-Tools</td><td>9.0+</td><td>Решатель расписания (CP-SAT)</td></tr>
+    <tr><td>openpyxl</td><td>3.x</td><td>Экспорт в Excel</td></tr>
+    <tr><td>PyInstaller</td><td>6.x</td><td>Сборка в .exe</td></tr>
+    <tr><td>hashlib</td><td>стандарт</td><td>Хеширование для цветов</td></tr>
+</table>
+
+<h3>2.2. Почему выбраны эти технологии</h3>
+<p><strong>Python</strong> — удобный, кроссплатформенный, много библиотек.</p>
+<p><strong>Flet</strong> — один код для Windows, Linux, Mac, Android, iOS. Современный дизайн.</p>
+<p><strong>OR-Tools CP-SAT</strong> — промышленный решатель от Google. В 100 раз быстрее наивного перебора.</p>
+<p><strong>openpyxl</strong> — стандарт для .xlsx. Поддерживает цвета, границы, формулы.</p>
+
+<hr>
+
+<h2>3. Архитектура проекта</h2>
+
+<h3>3.1. Структура файлов</h3>
+<pre>hronograf/
+├── desktop_app.py         # Точка входа, UI, вкладки
+├── models.py              # Модели данных
+├── scheduler.py           # Решатель (OR-Tools)
+├── advisor.py             # Умный советчик
+├── storage.py             # Сохранение/загрузка JSON
+├── license.py             # Управление лицензией
+├── excel_export.py        # Экспорт в Excel
+├── keygen.py              # Генератор ключей
+├── school_data.json       # Данные пользователя
+├── requirements.txt       # Зависимости
+├── README.md              # Краткое описание
+└── ДОКУМЕНТАЦИЯ.md        # Этот файл</pre>
+
+<h3>3.2. Что за что отвечает</h3>
+<table>
+    <tr><th>Файл</th><th>Ответственность</th></tr>
+    <tr><td>desktop_app.py</td><td>Интерфейс, вкладки, обработка кликов</td></tr>
+    <tr><td>models.py</td><td>Классы: Teacher, SchoolClass, Subject, Room, Lesson</td></tr>
+    <tr><td>scheduler.py</td><td>Составление расписания через OR-Tools</td></tr>
+    <tr><td>advisor.py</td><td>Анализ данных, поиск проблем</td></tr>
+    <tr><td>storage.py</td><td>Чтение/запись school_data.json</td></tr>
+    <tr><td>license.py</td><td>Проверка активации, сохранение ключа</td></tr>
+    <tr><td>excel_export.py</td><td>Создание .xlsx</td></tr>
+    <tr><td>keygen.py</td><td>Генерация ключей (приватно)</td></tr>
+</table>
+
+<hr>
+
+<h2>4. Как работает программа</h2>
+
+<h3>4.1. Общий поток</h3>
+<pre>1. ЗАПУСК      → Проверка лицензии
+2. ЗАПОЛНЕНИЕ  → Учителя, классы, предметы, кабинеты
+3. АНАЛИЗ      → advisor.py ищет проблемы
+4. РЕШЕНИЕ     → scheduler.py (OR-Tools)
+5. РЕЗУЛЬТАТ   → Расписание на экране
+6. ЭКСПОРТ     → Excel</pre>
+
+<h3>4.2. Подробно по шагам</h3>
+
+<p><strong>Шаг 1. Запуск</strong><br>
+Программа проверяет license.py — есть ли ключ активации. Если есть — полная версия. Если нет — демо (баннер, ограничение 5 классов).</p>
+
+<p><strong>Шаг 2. Заполнение данных</strong><br>
+Пользователь вводит: учителей, классы, предметы, кабинеты. Данные сохраняются в school_data.json автоматически.</p>
+
+<p><strong>Шаг 3. Анализ (advisor.py)</strong><br>
+Программа проверяет: есть ли учителя у каждого предмета, не превышает ли нагрузка класса 35 часов, хватает ли кабинетов.</p>
+
+<p><strong>Шаг 4. Решение (scheduler.py)</strong><br>
+OR-Tools строит модель. Ограничения: 1 класс — 1 урок, 1 учитель — 1 урок, 1 кабинет — 1 урок. Запреты: методический день. Обычно 2–5 секунд.</p>
+
+<p><strong>Шаг 5. Результат</strong><br>
+Расписание по классам и по учителям. Каждый предмет цветной. Можно кликнуть и переместить.</p>
+
+<p><strong>Шаг 6. Экспорт (excel_export.py)</strong><br>
+Кнопка «📊 Экспорт в Excel» → создаёт .xlsx. Вкладки: расписание, по учителям, списки данных.</p>
+
+<hr>
+
+<h2>5. Ключевые алгоритмы</h2>
+
+<h3>5.1. Решатель расписания (OR-Tools CP-SAT)</h3>
+<p>Задача: распределить N уроков по 5 дням × 7 слотам без конфликтов.</p>
+<p><strong>Модель:</strong></p>
+<ul>
+    <li>Переменные: x[lesson][day][slot] = 0 или 1</li>
+    <li>Ограничения:
+        <ul>
+            <li>sum(x[lesson][*][*]) == 1</li>
+            <li>Для каждого класса/дня/слота: сумма ≤ 1</li>
+            <li>Для каждого учителя/дня/слота: сумма ≤ 1</li>
+            <li>Для каждого кабинета/дня/слота: сумма ≤ 1</li>
+            <li>Запрещённые слоты: x = 0</li>
+        </ul>
+    </li>
+</ul>
+<p><strong>Решение:</strong> CP-SAT перебирает умно, отсекая невозможные варианты.</p>
+<p><strong>Время:</strong> обычно 1–5 секунд.</p>
+
+<h3>5.2. Умный советчик (advisor.py)</h3>
+<p><strong>Проверки:</strong></p>
+<ol>
+    <li>Есть ли учителя у всех предметов?</li>
+    <li>Не превышает ли нагрузка класса 35 часов?</li>
+    <li>Хватает ли кабинетов по вместимости?</li>
+    <li>Не превышает ли нагрузка учителя 35 слотов?</li>
+</ol>
+<p><strong>Вывод:</strong> список проблем с рекомендациями.</p>
+
+<hr>
+
+<h2>6. Лицензия</h2>
+
+<h3>6.1. Демо-версия</h3>
+<ul>
+    <li>Ограничение: не более 5 классов.</li>
+    <li>Баннер сверху с предложением активации.</li>
+    <li>Кнопка «🔑 Ввести ключ».</li>
+</ul>
+
+<h3>6.2. Активация</h3>
+<ul>
+    <li>Ключ формата SP-XXXX-XXXX-XXXX.</li>
+    <li>Проверяется офлайн по алгоритму md5(соль + номер).</li>
+    <li>Сохраняется в %APPDATA%\SchoolPlanner\license.json и %LOCALAPPDATA%.</li>
+    <li>При обновлении программы — ключ не теряется.</li>
+</ul>
+
+<h3>6.3. Генерация ключей</h3>
+<ul>
+    <li>keygen.py — только у разработчика.</li>
+    <li>Генерирует ключи по номерам.</li>
+    <li>Не публикуется в открытых источниках.</li>
+</ul>
+
+<hr>
+
+<h2>7. Сборка и запуск</h2>
+
+<h3>7.1. Запуск из исходников</h3>
+<pre>pip install -r requirements.txt
+python desktop_app.py</pre>
+
+<h3>7.2. Сборка в .exe</h3>
+<pre>flet pack desktop_app.py --name "SchoolPlanner_v2.1.0" ^
+  --add-data "advisor.py;." ^
+  --add-data "excel_export.py;." ^
+  --add-binary "C:\Windows\System32\msvcp140.dll;." ^
+  --add-binary "C:\Windows\System32\vcruntime140.dll;." ^
+  --add-binary "C:\Windows\System32\vcruntime140_1.dll;." ^
+  -- --hidden-import ortools --collect-all ortools</pre>
+
+<h3>7.3. Что получается</h3>
+<p>Папка dist/SchoolPlanner_v2.1.0/. Внутри .exe и все зависимости. Можно передать пользователю — работает без Python.</p>
+
+<hr>
+
+<h2>8. Перспективы развития</h2>
+
+<h3>8.1. Что уже сделано</h3>
+<ul>
+    <li>Автоматическое составление расписания</li>
+    <li>Умный советчик</li>
+    <li>Запрещённые слоты с причинами</li>
+    <li>Редактирование (клик-клик)</li>
+    <li>Экспорт в Excel</li>
+    <li>Демо-версия + активация</li>
+</ul>
+
+<h3>8.2. Что планируется</h3>
+<ul>
+    <li>Импорт из Excel</li>
+    <li>Минимум «окон» у классов</li>
+    <li>Спаренные уроки</li>
+    <li>Ручной выбор цветов предметов</li>
+    <li>Мобильная версия (просмотр через браузер)</li>
+    <li>Синхронизация через облако</li>
+</ul>
+
+<hr>
+
+<h2>9. Заключение</h2>
+<p>SchoolPlanner — полноценное приложение, которое решает реальную задачу российских школ: составление расписания.</p>
+<p><strong>Ключевые достоинства:</strong></p>
+<ul>
+    <li>Скорость — OR-Tools решает за секунды.</li>
+    <li>Простота — понятный интерфейс.</li>
+    <li>Надёжность — умный советчик предупреждает проблемы.</li>
+    <li>Экспорт — удобно делиться с коллегами.</li>
+    <li>Лицензия — гибкая система демо/полная версия.</li>
+</ul>
+<p>Проект готов к использованию в реальных школах и может развиваться дальше.</p>
+
+</body>
+</html>
