@@ -68,3 +68,6 @@ school_data.json
 # Тестовые файлы
 test_export.py
 test_*.py
+
+generate_test_data.py
+Шаблон_импорта.xlsx

@@ -17,11 +17,13 @@ from storage import (
     add_subject_db, update_subject_name, delete_subject_db, set_lesson_hours,
     add_subject_db, update_subject_name, delete_subject_db, set_lesson_hours,
     add_room_db, update_room, delete_room_db,
+    get_lesson_plan_stats,
 )
 from models import Teacher, SchoolClass, Subject, Room
 from scheduler import Scheduler
 import license as lic
 from excel_export import export_to_excel
+from excel_import import import_from_excel
 
 
 # Дни недели
@@ -1177,7 +1179,685 @@ def main(page: ft.Page):
         schedule_output.controls.append(schedule_container)
         render_schedule()
         page.update()
+        # Мастер
 
+    wizard_state = {"step": 1}
+
+    WIZARD_STEPS = [
+        "1. Школа",
+        "2. Учителя",
+        "3. Классы",
+        "4. Предметы",
+        "5. Кабинеты",
+        "6. Учебный план",
+        "7. Составление",
+    ]
+
+    wizard_content = ft.Column(spacing=15, expand=True)
+    wizard_progress = ft.Row(spacing=4, wrap=True,
+                             alignment=ft.MainAxisAlignment.CENTER)
+
+    def render_wizard_progress():
+        """Рисует верхнюю панель с шагами — по статусу заполнения."""
+        wizard_progress.controls.clear()
+        current = wizard_state["step"]
+
+        # Определяем статус каждого шага
+        statuses = check_wizard_statuses()
+
+        for i, name in enumerate(WIZARD_STEPS, start=1):
+            status = statuses[i]  # "ok" | "warning" | "empty"
+
+            if i == current:
+                # Текущий — всегда синий
+                color = ACCENT
+                text_color = "white"
+            elif status == "ok":
+                color = "#10b981"   # зелёный
+                text_color = "white"
+            elif status == "warning":
+                color = "#f59e0b"   # жёлтый
+                text_color = "white"
+            else:
+                color = "#ef4444"   # красный
+                text_color = "white"
+
+            wizard_progress.controls.append(ft.Container(
+                content=ft.Text(name, size=13, color=text_color,
+                                weight=ft.FontWeight.BOLD),
+                bgcolor=color,
+                padding=ft.Padding.symmetric(horizontal=15, vertical=10),
+                border_radius=8,
+            ))
+
+            if i < len(WIZARD_STEPS):
+                wizard_progress.controls.append(ft.Container(
+                    content=ft.Icon(ft.Icons.ARROW_FORWARD,
+                                    color=TEXT_MUTED, size=16),
+                    padding=ft.Padding.symmetric(horizontal=2),
+                ))
+    def go_to_step(step):
+            """Переключение шага мастера."""
+            if 1 <= step <= 7:
+                wizard_state["step"] = step
+            render_wizard_progress()   # ← обновляем панель шагов
+            render_wizard()             # ← обновляем содержимое
+            try:
+                wizard_progress.update()
+            except AssertionError:
+                pass
+    def check_wizard_statuses():
+        """
+        Проверяет статус каждого шага мастера.
+
+        Возвращает dict: {1: "ok"/"warning"/"empty", 2: ..., ...}
+        """
+        statuses = {}
+
+        # Шаг 1: Школа
+        school = data.get("school", {})
+        if school.get("name"):
+            statuses[1] = "ok"
+        else:
+            statuses[1] = "empty"
+
+        # Шаг 2: Учителя
+        teachers = data["teachers"]
+        if not teachers:
+            statuses[2] = "empty"
+        else:
+            has_problems = any(not t.get("subjects") for t in teachers)
+            statuses[2] = "warning" if has_problems else "ok"
+
+        # Шаг 3: Классы
+        classes = data["classes"]
+        if not classes:
+            statuses[3] = "empty"
+        else:
+            has_problems = any(c.get("students", 0) <= 0 for c in classes)
+            statuses[3] = "warning" if has_problems else "ok"
+
+        # Шаг 4: Предметы
+        subjects = data["subjects"]
+        if not subjects:
+            statuses[4] = "empty"
+        else:
+            has_problems = False
+            for s in subjects:
+                has_teacher = any(
+                    s["name"] in t.get("subjects", [])
+                    for t in data["teachers"]
+                )
+                total_hours = sum(s.get("hours", {}).values())
+
+                if not has_teacher or total_hours == 0:
+                    has_problems = True
+                    break
+            statuses[4] = "warning" if has_problems else "ok"
+
+        # Шаг 5: Кабинеты
+        rooms = data["rooms"]
+        if not rooms:
+            statuses[5] = "empty"
+        else:
+            has_problems = any(r.get("capacity", 0) <= 0 for r in rooms)
+            statuses[5] = "warning" if has_problems else "ok"
+
+        # Шаг 6: Учебный план
+        stats = get_lesson_plan_stats()
+        if stats["total_rows"] == 0:
+            statuses[6] = "empty"
+        elif stats["too_many_hours"] or stats["classes_with_plan"] < stats["classes_total"]:
+            statuses[6] = "warning"
+        else:
+            statuses[6] = "ok"
+
+        # Шаг 7: Составление
+        statuses[7] = "ok"
+
+        return statuses
+
+    def render_wizard():
+        """Перерисовывает содержимое текущего шага."""
+        wizard_content.controls.clear()
+        step = wizard_state["step"]
+
+        wizard_content.controls.append(
+            ft.Text(WIZARD_STEPS[step - 1], size=22,
+                    weight=ft.FontWeight.BOLD, color=TEXT_MAIN)
+        )
+
+        # Шаг 1: Школа
+        if step == 1:
+            school = data.get("school", {})
+            is_filled = bool(school.get("name"))
+
+            status_text = "✅ Заполнено" if is_filled else "⚠️ Не заполнено"
+            status_color = "#10b981" if is_filled else "#f59e0b"
+
+            fields = [
+                ("Название", school.get("name", "")),
+                ("Адрес", school.get("address", "")),
+                ("Директор", school.get("director", "")),
+                ("Телефон", school.get("phone", "")),
+                ("Email", school.get("email", "")),
+                ("Учебный год", school.get("academic_year", "")),
+            ]
+
+            info_rows = []
+            for label, value in fields:
+                info_rows.append(ft.Row([
+                    ft.Text(f"{label}:", width=120, color=TEXT_MUTED, size=13),
+                    ft.Text(value or "—", color=TEXT_MAIN, size=13),
+                ], spacing=10))
+
+            wizard_content.controls.append(
+                ft.Container(
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Text("Информация о школе", size=16,
+                                    weight=ft.FontWeight.BOLD, color=TEXT_MAIN),
+                            ft.Container(
+                                content=ft.Text(status_text, size=12, color="white"),
+                                bgcolor=status_color,
+                                padding=ft.Padding.symmetric(horizontal=10, vertical=4),
+                                border_radius=20,
+                            ),
+                        ], spacing=15,
+                           vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                        ft.Divider(color=CARD_BORDER),
+                        *info_rows,
+                    ], spacing=8),
+                    padding=20, bgcolor=CARD_BG,
+                    border=ft.Border.all(1, CARD_BORDER),
+                    border_radius=10,
+                )
+            )
+
+        # Шаг 2: Учителя
+        elif step == 2:
+            teachers = data["teachers"]
+            count = len(teachers)
+
+            problems = []
+            for t in teachers:
+                if not t.get("subjects"):
+                    problems.append(f"У {t['name']} нет предметов")
+
+            is_ok = count > 0 and not problems
+            status_text = "✅ Всё ок" if is_ok else f"⚠️ {len(problems)} проблем"
+            status_color = "#10b981" if is_ok else "#f59e0b"
+
+            rows = []
+            for t in teachers[:10]:
+                rows.append(ft.Row([
+                    ft.Text(t["name"], color=TEXT_MAIN, size=13, width=200),
+                    ft.Text(", ".join(t["subjects"]) or "—",
+                            color=TEXT_MUTED, size=12),
+                ], spacing=10))
+
+            if len(teachers) > 10:
+                rows.append(ft.Text(f"...и ещё {len(teachers) - 10}",
+                                    color=TEXT_MUTED, size=12, italic=True))
+
+            problem_rows = [
+                ft.Text(f"⚠️ {p}", color="#f59e0b", size=12)
+                for p in problems[:5]
+            ]
+
+            wizard_content.controls.append(
+                ft.Container(
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Text(f"Учителей: {count}", size=16,
+                                    weight=ft.FontWeight.BOLD, color=TEXT_MAIN),
+                            ft.Container(
+                                content=ft.Text(status_text, size=12, color="white"),
+                                bgcolor=status_color,
+                                padding=ft.Padding.symmetric(horizontal=10, vertical=4),
+                                border_radius=20,
+                            ),
+                        ], spacing=15,
+                           vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                        ft.Divider(color=CARD_BORDER),
+                        *rows,
+                        *problem_rows,
+                    ], spacing=6),
+                    padding=20, bgcolor=CARD_BG,
+                    border=ft.Border.all(1, CARD_BORDER),
+                    border_radius=10,
+                )
+            )
+
+         # Шаг 3: Классы
+        elif step == 3:
+            classes = data["classes"]
+            count = len(classes)
+
+            problems = []
+            for c in classes:
+                if c.get("students", 0) <= 0:
+                    problems.append(f"У класса «{c['name']}» не указано число учеников")
+
+            is_ok = count > 0 and not problems
+            n = len(problems)
+            if n == 1:
+                word = "проблема"
+            elif 2 <= n <= 4:
+                word = "проблемы"
+            else:
+                word = "проблем"
+
+            status_text = "✅ Всё ок" if is_ok else f"⚠️ {n} {word}"
+            status_color = "#10b981" if is_ok else "#f59e0b"
+
+            rows = []
+            for c in classes[:15]:
+                rows.append(ft.Row([
+                    ft.Text(c["name"], color=TEXT_MAIN, size=13, width=100),
+                    ft.Text(f"{c.get('students', 0)} учеников",
+                            color=TEXT_MUTED, size=12),
+                ], spacing=10))
+
+            if len(classes) > 15:
+                rows.append(ft.Text(f"...и ещё {len(classes) - 15}",
+                                    color=TEXT_MUTED, size=12, italic=True))
+
+            problem_rows = [
+                ft.Text(f"⚠️ {p}", color="#f59e0b", size=12)
+                for p in problems[:5]
+            ]
+
+            wizard_content.controls.append(
+                ft.Container(
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Text(f"Классов: {count}", size=16,
+                                    weight=ft.FontWeight.BOLD, color=TEXT_MAIN),
+                            ft.Container(
+                                content=ft.Text(status_text, size=12, color="white"),
+                                bgcolor=status_color,
+                                padding=ft.Padding.symmetric(horizontal=10, vertical=4),
+                                border_radius=20,
+                            ),
+                        ], spacing=15,
+                           vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                        ft.Divider(color=CARD_BORDER),
+                        *rows,
+                        *problem_rows,
+                    ], spacing=6),
+                    padding=20, bgcolor=CARD_BG,
+                    border=ft.Border.all(1, CARD_BORDER),
+                    border_radius=10,
+                )
+            )
+
+
+                # Шаг 4: Предметы
+        elif step == 4:
+            subjects = data["subjects"]
+            count = len(subjects)
+
+            problems = []
+            for s in subjects:
+                # Проверяем, есть ли учитель
+                has_teacher = any(
+                    s["name"] in t.get("subjects", [])
+                    for t in data["teachers"]
+                )
+                if not has_teacher:
+                    problems.append(f"У предмета «{s['name']}» нет учителя")
+
+                # Проверяем, есть ли часы
+                total_hours = sum(s.get("hours", {}).values())
+                if total_hours == 0:
+                    problems.append(f"У предмета «{s['name']}» нет часов")
+
+            is_ok = count > 0 and not problems
+            n = len(problems)
+            if n == 1:
+                word = "проблема"
+            elif 2 <= n <= 4:
+                word = "проблемы"
+            else:
+                word = "проблем"
+
+            status_text = "✅ Всё ок" if is_ok else f"⚠️ {n} {word}"
+            status_color = "#10b981" if is_ok else "#f59e0b"
+
+            rows = []
+            for s in subjects[:10]:
+                total_hours = sum(s.get("hours", {}).values())
+                has_teacher = any(
+                    s["name"] in t.get("subjects", [])
+                    for t in data["teachers"]
+                )
+                teacher_status = "✅" if has_teacher else "❌"
+                rows.append(ft.Row([
+                    ft.Text(teacher_status, size=14, width=25),
+                    ft.Text(s["name"], color=TEXT_MAIN, size=13, width=200),
+                    ft.Text(f"{total_hours} ч/нед",
+                            color=TEXT_MUTED, size=12),
+                ], spacing=8))
+
+            if len(subjects) > 10:
+                rows.append(ft.Text(f"...и ещё {len(subjects) - 10}",
+                                    color=TEXT_MUTED, size=12, italic=True))
+
+            problem_rows = [
+                ft.Text(f"⚠️ {p}", color="#f59e0b", size=12)
+                for p in problems[:8]
+            ]
+
+            wizard_content.controls.append(
+                ft.Container(
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Text(f"Предметов: {count}", size=16,
+                                    weight=ft.FontWeight.BOLD, color=TEXT_MAIN),
+                            ft.Container(
+                                content=ft.Text(status_text, size=12, color="white"),
+                                bgcolor=status_color,
+                                padding=ft.Padding.symmetric(horizontal=10, vertical=4),
+                                border_radius=20,
+                            ),
+                        ], spacing=15,
+                           vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                        ft.Divider(color=CARD_BORDER),
+                        *rows,
+                        *problem_rows,
+                    ], spacing=6),
+                    padding=20, bgcolor=CARD_BG,
+                    border=ft.Border.all(1, CARD_BORDER),
+                    border_radius=10,
+                )
+            )
+
+        # Шаг 5: Кабинеты
+                # Шаг 5: Кабинеты
+        elif step == 5:
+            rooms = data["rooms"]
+            count = len(rooms)
+
+            problems = []
+            for r in rooms:
+                if r.get("capacity", 0) <= 0:
+                    problems.append(f"У кабинета {r['name']} не указана вместимость")
+
+            # Проверяем, хватает ли кабинетов для всех классов
+            max_students = max((c.get("students", 0) for c in data["classes"]), default=0)
+            can_fit = any(r.get("capacity", 0) >= max_students for r in rooms)
+            if not can_fit and max_students > 0:
+                problems.append(
+                    f"Нет кабинета, вмещающего {max_students} учеников"
+                )
+
+            is_ok = count > 0 and not problems
+            n = len(problems)
+            if n == 1:
+                word = "проблема"
+            elif 2 <= n <= 4:
+                word = "проблемы"
+            else:
+                word = "проблем"
+
+            status_text = "✅ Всё ок" if is_ok else f"⚠️ {n} {word}"
+            status_color = "#10b981" if is_ok else "#f59e0b"
+
+            rows = []
+            for r in rooms[:15]:
+                spec = r.get("subject_specific", "")
+                spec_text = f"  ({spec})" if spec else ""
+                rows.append(ft.Row([
+                    ft.Text(r["name"], color=TEXT_MAIN, size=13, width=100),
+                    ft.Text(f"{r.get('capacity', 0)} мест{spec_text}",
+                            color=TEXT_MUTED, size=12),
+                ], spacing=10))
+
+            if len(rooms) > 15:
+                rows.append(ft.Text(f"...и ещё {len(rooms) - 15}",
+                                    color=TEXT_MUTED, size=12, italic=True))
+
+            problem_rows = [
+                ft.Text(f"⚠️ {p}", color="#f59e0b", size=12)
+                for p in problems[:5]
+            ]
+
+            wizard_content.controls.append(
+                ft.Container(
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Text(f"Кабинетов: {count}", size=16,
+                                    weight=ft.FontWeight.BOLD, color=TEXT_MAIN),
+                            ft.Container(
+                                content=ft.Text(status_text, size=12, color="white"),
+                                bgcolor=status_color,
+                                padding=ft.Padding.symmetric(horizontal=10, vertical=4),
+                                border_radius=20,
+                            ),
+                        ], spacing=15,
+                           vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                        ft.Divider(color=CARD_BORDER),
+                        *rows,
+                        *problem_rows,
+                    ], spacing=6),
+                    padding=20, bgcolor=CARD_BG,
+                    border=ft.Border.all(1, CARD_BORDER),
+                    border_radius=10,
+                )
+            )
+
+                # Шаг 6: Учебный план
+        elif step == 6:
+            stats = get_lesson_plan_stats()
+
+            total = stats["total_rows"]
+            classes_with = stats["classes_with_plan"]
+            classes_total = stats["classes_total"]
+            max_h = stats["max_hours"]
+            too_many = stats["too_many_hours"]
+            assigned = stats["teachers_assigned"]
+
+            # Статус
+            if total == 0:
+                status_text = "❌ План не загружен"
+                status_color = "#ef4444"
+            elif too_many:
+                status_text = f"⚠️ {len(too_many)} классов с перегрузом"
+                status_color = "#f59e0b"
+            elif classes_with < classes_total:
+                missing = classes_total - classes_with
+                status_text = f"⚠️ {missing} классов без плана"
+                status_color = "#f59e0b"
+            else:
+                status_text = "✅ Всё ок"
+                status_color = "#10b981"
+
+            # Информационные строки
+            info_rows = [
+                ft.Row([
+                    ft.Text("Строк в плане:", width=200, color=TEXT_MUTED, size=13),
+                    ft.Text(str(total), color=TEXT_MAIN, size=13),
+                ], spacing=10),
+                ft.Row([
+                    ft.Text("Классов с планом:", width=200, color=TEXT_MUTED, size=13),
+                    ft.Text(f"{classes_with} из {classes_total}",
+                            color=TEXT_MAIN, size=13),
+                ], spacing=10),
+                ft.Row([
+                    ft.Text("Максимум часов у класса:", width=200,
+                            color=TEXT_MUTED, size=13),
+                    ft.Text(f"{max_h} (норма ≤ 40)", color=TEXT_MAIN, size=13),
+                ], spacing=10),
+                ft.Row([
+                    ft.Text("Строк с назначенным учителем:", width=200,
+                            color=TEXT_MUTED, size=13),
+                    ft.Text(f"{assigned} из {total}", color=TEXT_MAIN, size=13),
+                ], spacing=10),
+            ]
+
+            # Предупреждения
+            problem_rows = []
+            if too_many:
+                problem_rows.append(ft.Text(
+                    f"⚠️ Перегруз у классов: {', '.join(too_many)}",
+                    color="#f59e0b", size=12
+                ))
+
+            # Кнопка импорта
+            def do_import(e):
+                ok, msg = import_from_excel("Шаблон_импорта.xlsx")
+                if ok:
+                    show_snack(f"✅ {msg}", "#10b981")
+                    reload_and_render()
+                    render_wizard_progress()
+                    render_wizard()
+                else:
+                    show_snack(f"❌ {msg}", "#ef4444")
+
+            import_button = ft.Button(
+                "📥 Импорт из Excel",
+                on_click=do_import,
+                style=ft.ButtonStyle(
+                    bgcolor="#10b981", color="white",
+                    padding=ft.Padding.symmetric(horizontal=20, vertical=14),
+                    shape=ft.RoundedRectangleBorder(radius=10),
+                ),
+            )
+
+            wizard_content.controls.append(
+                ft.Container(
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Text("Статистика учебного плана", size=16,
+                                    weight=ft.FontWeight.BOLD, color=TEXT_MAIN),
+                            ft.Container(
+                                content=ft.Text(status_text, size=12, color="white"),
+                                bgcolor=status_color,
+                                padding=ft.Padding.symmetric(horizontal=10, vertical=4),
+                                border_radius=20,
+                            ),
+                        ], spacing=15,
+                           vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                        ft.Divider(color=CARD_BORDER),
+                        *info_rows,
+                        *problem_rows,
+                        ft.Divider(color=CARD_BORDER),
+                        ft.Text(
+                            "Файл должен лежать рядом с программой: Шаблон_импорта.xlsx",
+                            color=TEXT_MUTED, size=12, italic=True,
+                        ),
+                        import_button,
+                    ], spacing=10),
+                    padding=20, bgcolor=CARD_BG,
+                    border=ft.Border.all(1, CARD_BORDER),
+                    border_radius=10,
+                )
+            )
+
+        # Шаг 7: Составление
+        else:
+            statuses = check_wizard_statuses()
+
+            empty_steps = [i for i, s in statuses.items() if s == "empty" and i < 7]
+            warning_steps = [i for i, s in statuses.items() if s == "warning" and i < 7]
+
+            if empty_steps:
+                ready_text = f"❌ Не готово: шаги {', '.join(map(str, empty_steps))} не заполнены"
+                ready_color = "#ef4444"
+            elif warning_steps:
+                ready_text = f"⚠️ Можно составить, но есть проблемы на шагах {', '.join(map(str, warning_steps))}"
+                ready_color = "#f59e0b"
+            else:
+                ready_text = "✅ Всё готово к составлению!"
+                ready_color = "#10b981"
+
+            summary = [
+                ("Школа", data.get("school", {}).get("name") or "—"),
+                ("Учителей", str(len(data["teachers"]))),
+                ("Классов", str(len(data["classes"]))),
+                ("Предметов", str(len(data["subjects"]))),
+                ("Кабинетов", str(len(data["rooms"]))),
+            ]
+
+            summary_rows = []
+            for label, value in summary:
+                summary_rows.append(ft.Row([
+                    ft.Text(f"{label}:", width=120, color=TEXT_MUTED, size=13),
+                    ft.Text(value, color=TEXT_MAIN, size=13),
+                ], spacing=10))
+
+            wizard_content.controls.append(
+                ft.Container(
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Text("Готовность к составлению", size=16,
+                                    weight=ft.FontWeight.BOLD, color=TEXT_MAIN),
+                            ft.Container(
+                                content=ft.Text(ready_text, size=12, color="white"),
+                                bgcolor=ready_color,
+                                padding=ft.Padding.symmetric(horizontal=10, vertical=4),
+                                border_radius=20,
+                            ),
+                        ], spacing=15,
+                           vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                        ft.Divider(color=CARD_BORDER),
+                        *summary_rows,
+                        ft.Divider(color=CARD_BORDER),
+                        ft.Text(
+                            "Нажмите «Составить расписание» — алгоритм начнёт работу.",
+                            color=TEXT_MUTED, size=13,
+                        ),
+                    ], spacing=8),
+                    padding=20, bgcolor=CARD_BG,
+                    border=ft.Border.all(1, CARD_BORDER),
+                    border_radius=10,
+                )
+            )
+
+        # Кнопки навигации
+        nav_buttons = []
+        if step > 1:
+            nav_buttons.append(ft.Button(
+                "← Назад",
+                on_click=lambda e: go_to_step(step - 1),
+                style=ft.ButtonStyle(
+                    bgcolor=CARD_BG, color=TEXT_MAIN,
+                    padding=ft.Padding.symmetric(horizontal=20, vertical=14),
+                    shape=ft.RoundedRectangleBorder(radius=10),
+                ),
+            ))
+
+        if step < 7:
+            nav_buttons.append(ft.Button(
+                "Далее →",
+                on_click=lambda e: go_to_step(step + 1),
+                style=ft.ButtonStyle(
+                    bgcolor=ACCENT, color="white",
+                    padding=ft.Padding.symmetric(horizontal=20, vertical=14),
+                    shape=ft.RoundedRectangleBorder(radius=10),
+                ),
+            ))
+        else:
+            nav_buttons.append(ft.Button(
+                "🚀 Составить расписание",
+                on_click=build_schedule,
+                style=ft.ButtonStyle(
+                    bgcolor="#10b981", color="white",
+                    padding=ft.Padding.symmetric(horizontal=24, vertical=18),
+                    shape=ft.RoundedRectangleBorder(radius=10),
+                ),
+            ))
+
+        wizard_content.controls.append(
+            ft.Row(nav_buttons, spacing=10,
+                   alignment=ft.MainAxisAlignment.END)
+        )
+
+        try:
+            wizard_content.update()
+        except AssertionError:
+            pass
     # Вкладки
 
     def make_tab_content(title, subtitle, button_text, on_click, content):
@@ -1200,7 +1880,7 @@ def main(page: ft.Page):
         )
 
     tabs = ft.Tabs(
-        length=6,
+        length=7,
         selected_index=0,
         expand=True,
         content=ft.Column(
@@ -1209,6 +1889,7 @@ def main(page: ft.Page):
                 ft.Container(
                     content=ft.TabBar(tabs=[
                         ft.Tab(label="📅 Расписание"),
+                        ft.Tab(label="🧙 Мастер"),
                         ft.Tab(label="👩‍🏫 Учителя"),
                         ft.Tab(label="🏫 Классы"),
                         ft.Tab(label="📚 Предметы"),
@@ -1246,6 +1927,21 @@ def main(page: ft.Page):
                                     ),
                                 ], spacing=15),
                                 schedule_output,
+                            ], expand=True, scroll=ft.ScrollMode.AUTO),
+                            padding=30, expand=True, bgcolor=BG,
+                        ),
+                        # Мастер
+
+                        ft.Container(
+                            content=ft.Column([
+                                page_title("Мастер расписания",
+                                           "Пошаговое составление с проверками"),
+                                ft.Container(
+                                    content=wizard_progress,
+                                    padding=ft.Padding.only(bottom=20),
+                                ),
+                                ft.Divider(color=CARD_BORDER),
+                                wizard_content,
                             ], expand=True, scroll=ft.ScrollMode.AUTO),
                             padding=30, expand=True, bgcolor=BG,
                         ),
@@ -1308,12 +2004,16 @@ def main(page: ft.Page):
         )
     )
 
-    # Первичная отрисовка
+        # Первичная отрисовка
     render_teachers()
     render_classes()
     render_subjects()
     render_rooms()
     render_demo_banner()
+
+    # Мастер — начальная отрисовка
+    render_wizard_progress()
+    render_wizard()
 
 
 ft.run(main)

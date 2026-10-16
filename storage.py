@@ -96,7 +96,20 @@ def _load_rooms(conn):
         }
         for r in cur.fetchall()
     ]
-
+def _load_school(conn):
+    """Загружает информацию о школе."""
+    cur = conn.execute("SELECT * FROM school LIMIT 1")
+    row = cur.fetchone()
+    if row is None:
+        return {}
+    return {
+        "name": row["name"] or "",
+        "address": row["address"] or "",
+        "director": row["director"] or "",
+        "phone": row["phone"] or "",
+        "email": row["email"] or "",
+        "academic_year": row["academic_year"] or "",
+    }
 
 def load_data():
     """Загружает все данные из БД."""
@@ -105,6 +118,7 @@ def load_data():
     conn = get_connection()
     try:
         return {
+            "school": _load_school(conn),
             "teachers": _load_teachers(conn),
             "classes": _load_classes(conn),
             "subjects": _load_subjects(conn),
@@ -380,6 +394,64 @@ def delete_room_db(room_id):
         conn.close()
 
 
+def get_lesson_plan_stats():
+    """
+    Возвращает статистику по учебному плану.
+
+    Возвращает dict:
+        {
+            "total_rows": int,           # всего строк в lesson_plan
+            "classes_with_plan": int,    # классов с планом
+            "classes_total": int,        # всего классов
+            "hours_by_class": {name: int},  # часы по классам
+            "max_hours": int,            # максимум часов у класса
+            "too_many_hours": [names],   # классы с > 40 часов
+            "teachers_assigned": int,    # строк с учителем
+        }
+    """
+    conn = get_connection()
+    try:
+        # Всего строк в плане
+        cur = conn.execute("SELECT COUNT(*) FROM lesson_plan")
+        total_rows = cur.fetchone()[0]
+
+        # Всего классов
+        cur = conn.execute("SELECT COUNT(*) FROM classes")
+        classes_total = cur.fetchone()[0]
+
+        # Классы с планом
+        cur = conn.execute("SELECT COUNT(DISTINCT class_id) FROM lesson_plan")
+        classes_with_plan = cur.fetchone()[0]
+
+        # Часы по классам
+        cur = conn.execute(
+            "SELECT c.name AS name, SUM(lp.hours) AS hours "
+            "FROM lesson_plan lp "
+            "JOIN classes c ON c.id = lp.class_id "
+            "GROUP BY c.id"
+        )
+        hours_by_class = {r["name"]: r["hours"] for r in cur.fetchall()}
+
+        max_hours = max(hours_by_class.values()) if hours_by_class else 0
+        too_many_hours = [n for n, h in hours_by_class.items() if h > 40]
+
+        # Строки с учителем
+        cur = conn.execute(
+            "SELECT COUNT(*) FROM lesson_plan WHERE teacher_id IS NOT NULL"
+        )
+        teachers_assigned = cur.fetchone()[0]
+
+        return {
+            "total_rows": total_rows,
+            "classes_with_plan": classes_with_plan,
+            "classes_total": classes_total,
+            "hours_by_class": hours_by_class,
+            "max_hours": max_hours,
+            "too_many_hours": too_many_hours,
+            "teachers_assigned": teachers_assigned,
+        }
+    finally:
+        conn.close()
 # Экспорт
 
 
