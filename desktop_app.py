@@ -9,20 +9,29 @@ SchoolPlanner — генератор школьного расписания.
 import os
 import flet as ft
 
-from storage import load_data, save_data
+from storage import (
+    load_data, save_data,
+    add_teacher_db, update_teacher_name, delete_teacher_db,
+    add_teacher_subject, remove_teacher_subject, set_teacher_unavailable,
+    add_class_db, update_class, delete_class_db,
+    add_subject_db, update_subject_name, delete_subject_db, set_lesson_hours,
+    add_subject_db, update_subject_name, delete_subject_db, set_lesson_hours,
+    add_room_db, update_room, delete_room_db,
+)
 from models import Teacher, SchoolClass, Subject, Room
 from scheduler import Scheduler
 import license as lic
 from excel_export import export_to_excel
 
 
-# ============================================================================
-# Константы
-# ============================================================================
-
+# Дни недели
 DAY_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт"]
-SLOTS_PER_DAY = 7
-APP_VERSION = "v2.1.1"
+
+# Уроков в день (8)
+SLOTS_PER_DAY = 8
+
+# Версия
+APP_VERSION = "v2.2.0"
 
 # Палитра цветов для предметов
 SUBJECT_COLORS = [
@@ -35,12 +44,10 @@ SUBJECT_COLORS = [
 def main(page: ft.Page):
     """Точка входа Flet-приложения."""
 
-    # ========================================================================
-    # Инициализация: окно, тема, палитра, данные
-    # ========================================================================
-
+    # Лицензия
     is_activated = lic.is_activated()
 
+    # Настройки окна
     title_suffix = "" if is_activated else " (ДЕМО)"
     page.title = f"SchoolPlanner {APP_VERSION}{title_suffix}"
     page.window.width = 1800
@@ -50,6 +57,7 @@ def main(page: ft.Page):
     page.window.left = 80
     page.window.top = 30
 
+    # Тема
     page.theme_mode = ft.ThemeMode.DARK
     page.theme = ft.Theme(color_scheme_seed="#6366f1")
 
@@ -62,16 +70,24 @@ def main(page: ft.Page):
     TEXT_MAIN = "#f1f5f9"
     TEXT_MUTED = "#cbd5e1"
 
+    # Загрузка данных
     data = load_data()
 
-    # Состояние редактирования расписания
+    # Состояние расписания
     editable_schedule = []
     selected_lesson = {"obj": None}
     schedule_container = ft.Column(spacing=4)
 
-    # ========================================================================
+    def reload_and_render():
+        """Перечитывает данные из БД и перерисовывает вкладки."""
+        nonlocal data
+        data = load_data()
+        render_teachers()
+        render_classes()
+        render_subjects()
+        render_rooms()
+
     # Хелперы
-    # ========================================================================
 
     def subject_color(subject_name):
         """Возвращает HEX-цвет предмета по его индексу."""
@@ -119,40 +135,7 @@ def main(page: ft.Page):
         snack.open = True
         page.update()
 
-    # ========================================================================
-    # Универсальные фабрики обработчиков
-    # ========================================================================
-
-    def make_save_handler(collection, idx, field, converter=str):
-        """Фабрика обработчика сохранения одного поля."""
-        def handler(e):
-            try:
-                value = converter(e.control.value) if converter != str else e.control.value
-                data[collection][idx][field] = value
-                save_data(data)
-            except (ValueError, TypeError):
-                pass
-        return handler
-
-    def make_delete_handler(collection, idx, callback):
-        """Фабрика обработчика удаления элемента."""
-        def handler(e):
-            data[collection].pop(idx)
-            save_data(data)
-            callback()
-        return handler
-
-    def make_submit_handler(collection, idx, field, callback):
-        """Фабрика обработчика сохранения по Enter."""
-        def handler(e):
-            data[collection][idx][field] = e.control.value
-            save_data(data)
-            callback()
-        return handler
-
-    # ========================================================================
     # Баннер демо-версии
-    # ========================================================================
 
     demo_banner = ft.Container()
 
@@ -199,9 +182,7 @@ def main(page: ft.Page):
         except AssertionError:
             pass
 
-    # ========================================================================
     # Диалог активации
-    # ========================================================================
 
     def open_activation_dialog(e):
         """Открывает диалог ввода ключа."""
@@ -285,18 +266,14 @@ def main(page: ft.Page):
         dlg.open = True
         page.update()
 
-    # ========================================================================
-    # Вкладка «Учителя»
-    # ========================================================================
+    # Вкладка «Учителя» (SQL)
 
     teachers_list = ft.Column(spacing=10)
 
-    def open_slots_dialog(teacher_idx):
-        """Диалог настройки запрещённых слотов для учителя."""
-        teacher = data["teachers"][teacher_idx]
-
+    def open_slots_dialog(teacher_id, teacher_name, unavailable_slots):
+        """Диалог запрещённых слотов для учителя."""
         unavailable = {}
-        for item in teacher.get("unavailable_slots", []):
+        for item in unavailable_slots:
             if isinstance(item, list) and len(item) >= 2:
                 reason = item[2] if len(item) > 2 else ""
                 unavailable[(item[0], item[1])] = reason
@@ -315,14 +292,13 @@ def main(page: ft.Page):
             ], spacing=4)
             grid_container.controls.append(header)
 
-            for slot in range(SLOTS_PER_DAY):
+            for slot in range(8):
                 row_cells = [ft.Container(
                     content=ft.Text(str(slot + 1), size=14, color=TEXT_MAIN),
                     width=60, padding=5, alignment=ft.Alignment.CENTER,
                 )]
 
                 for day in range(5):
-
                     def make_click(d, s):
                         def handler(e):
                             if (d, s) not in unavailable:
@@ -366,7 +342,6 @@ def main(page: ft.Page):
                                 ft.IconButton(
                                     ft.Icons.CLOSE, icon_size=14,
                                     icon_color="#ef4444",
-                                    tooltip="Снять запрет",
                                     on_click=make_clear(day, slot),
                                     width=30,
                                 ),
@@ -387,7 +362,6 @@ def main(page: ft.Page):
                             alignment=ft.Alignment.CENTER,
                             on_click=make_click(day, slot),
                             ink=True,
-                            tooltip="Нажми, чтобы запретить",
                         )
                     row_cells.append(cell)
 
@@ -396,13 +370,11 @@ def main(page: ft.Page):
         rebuild_grid()
 
         def save_and_close(e):
-            teacher["unavailable_slots"] = [
-                [d, s, reason] for (d, s), reason in unavailable.items()
-            ]
-            save_data(data)
+            slots = [[d, s, reason] for (d, s), reason in unavailable.items()]
+            set_teacher_unavailable(teacher_id, slots)
             dlg.open = False
             page.update()
-            render_teachers()
+            reload_and_render()
 
         def close_dialog(e):
             dlg.open = False
@@ -410,7 +382,7 @@ def main(page: ft.Page):
 
         dlg = ft.AlertDialog(
             modal=True,
-            title=ft.Text(f"🚫 Запрещённые слоты: {teacher['name']}", color=TEXT_MAIN),
+            title=ft.Text(f"🚫 Запрещённые слоты: {teacher_name}", color=TEXT_MAIN),
             content=ft.Container(
                 content=ft.Column([
                     ft.Container(
@@ -427,7 +399,7 @@ def main(page: ft.Page):
                     ft.Divider(color=CARD_BORDER),
                     grid_container,
                 ], spacing=8, scroll=ft.ScrollMode.AUTO),
-                width=1050, height=650,
+                width=1050, height=700,
             ),
             actions=[
                 ft.TextButton("Отмена", on_click=close_dialog),
@@ -446,128 +418,60 @@ def main(page: ft.Page):
         dlg.open = True
         page.update()
 
-    def build_warnings_block(warnings):
-        """Сворачивающийся блок с предупреждениями."""
-        if not warnings:
-            return ft.Container()
-
-        details = ft.Column(
-            [ft.Container(
-                content=ft.Column([
-                    ft.Row([
-                        ft.Text("⚠️", size=14),
-                        ft.Text(p.title, size=13, weight=ft.FontWeight.BOLD,
-                                color="#f59e0b"),
-                    ], spacing=6),
-                    ft.Text(p.details, size=12, color=TEXT_MUTED),
-                ], spacing=4),
-                padding=8,
-                border=ft.Border.all(1, "#f59e0b"),
-                border_radius=8,
-                margin=ft.Margin.only(bottom=4),
-            ) for p in warnings],
-            spacing=4, visible=False,
-        )
-
-        def toggle(e):
-            details.visible = not details.visible
-            arrow.content = ft.Icon(
-                ft.Icons.KEYBOARD_ARROW_DOWN if not details.visible
-                else ft.Icons.KEYBOARD_ARROW_UP,
-                color="#f59e0b", size=18,
-            )
-            try:
-                details.update()
-                arrow.update()
-            except AssertionError:
-                pass
-
-        arrow = ft.Container(
-            content=ft.Icon(ft.Icons.KEYBOARD_ARROW_DOWN, color="#f59e0b", size=18),
-            on_click=toggle, ink=True, padding=4, border_radius=6,
-            tooltip="Показать / скрыть предупреждения",
-        )
-
-        header = ft.Container(
-            content=ft.Row([
-                ft.Text(f"⚠️ {len(warnings)} предупреждений",
-                        size=13, weight=ft.FontWeight.BOLD, color="#f59e0b"),
-                arrow,
-            ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            on_click=toggle, ink=True,
-            padding=ft.Padding.symmetric(horizontal=10, vertical=4),
-            border_radius=8,
-        )
-
-        return ft.Column([header, details], spacing=2)
-
     def render_teachers():
-        """Перерисовывает карточки учителей."""
+        """Перерисовывает карточки учителей из SQL."""
         teachers_list.controls.clear()
         all_subjects = [s["name"] for s in data["subjects"]]
 
-        # Чистим несуществующие предметы
-        valid = set(all_subjects)
         for t in data["teachers"]:
-            cleaned = [s for s in t["subjects"] if s in valid]
-            if cleaned != t["subjects"]:
-                t["subjects"] = cleaned
-                save_data(data)
+            t_id = t["id"]
 
-        for i, t in enumerate(data["teachers"]):
-
-            def make_name_submit(idx):
+            def make_name_submit(tid):
                 def handler(e):
-                    data["teachers"][idx]["name"] = e.control.value
-                    save_data(data)
-                    render_teachers()
+                    update_teacher_name(tid, e.control.value)
+                    reload_and_render()
                 return handler
 
-            def make_del(idx):
+            def make_del(tid):
                 def handler(e):
-                    data["teachers"].pop(idx)
-                    save_data(data)
-                    render_teachers()
+                    delete_teacher_db(tid)
+                    reload_and_render()
                 return handler
 
-            def make_subj_selected(idx):
+            def make_subj_selected(tid):
                 def handler(e):
                     val = e.control.value
-                    if val and val not in data["teachers"][idx]["subjects"]:
-                        data["teachers"][idx]["subjects"].append(val)
-                        save_data(data)
-                        render_teachers()
+                    if val:
+                        add_teacher_subject(tid, val)
+                        reload_and_render()
                     e.control.value = None
                 return handler
 
             name_field = ft.TextField(
                 value=t["name"], label="ФИО (Enter — обновить)",
                 width=300,
-                on_change=make_save_handler("teachers", i, "name"),
-                on_submit=make_name_submit(i),
+                on_submit=make_name_submit(t_id),
                 border_color=CARD_BORDER, focused_border_color=ACCENT,
             )
 
             subj_dropdown = ft.Dropdown(
                 label="➕ Добавить предмет", width=280,
                 options=[ft.DropdownOption(key=s, text=s) for s in all_subjects],
-                on_select=make_subj_selected(i),
+                on_select=make_subj_selected(t_id),
                 border_color=CARD_BORDER, focused_border_color=ACCENT,
             )
 
             chips = ft.Row(spacing=3, wrap=True)
             for s in t["subjects"]:
-                def make_remove(idx, subj):
+                def make_remove(tid, subj):
                     def handler(e):
-                        data["teachers"][idx]["subjects"].remove(subj)
-                        save_data(data)
-                        render_teachers()
+                        remove_teacher_subject(tid, subj)
+                        reload_and_render()
                     return handler
                 chips.controls.append(
-                    ft.Chip(label=ft.Text(s), on_delete=make_remove(i, s))
+                    ft.Chip(label=ft.Text(s), on_delete=make_remove(t_id, s))
                 )
 
-            # Тултип
             unavailable_list = t.get("unavailable_slots", [])
             if unavailable_list:
                 lines = [f"Запрещённых слотов: {len(unavailable_list)}"]
@@ -597,12 +501,12 @@ def main(page: ft.Page):
                 ft.IconButton(
                     ft.Icons.BLOCK,
                     icon_color="#f59e0b" if unavailable_list else "#94a3b8",
-                    tooltip=("🚫 Запрещённые слоты\n"
-                             "Не ставить уроки учителю в эти часы.\n"
-                             "Нажми, чтобы настроить.\n\n" + tooltip),
-                    on_click=lambda e, idx=i: open_slots_dialog(idx),
+                    tooltip=("🚫 Запрещённые слоты\n\n" + tooltip),
+                    on_click=lambda e, tid=t_id, nm=t["name"], u=unavailable_list:
+                        open_slots_dialog(tid, nm, u),
                 ),
-                ft.IconButton(ft.Icons.DELETE, icon_color="red", on_click=make_del(i)),
+                ft.IconButton(ft.Icons.DELETE, icon_color="red",
+                              on_click=make_del(t_id)),
             ], alignment=ft.MainAxisAlignment.START,
                vertical_alignment=ft.CrossAxisAlignment.CENTER,
                spacing=10)
@@ -615,45 +519,43 @@ def main(page: ft.Page):
         page.update()
 
     def add_teacher(e):
-        new_id = max([t["id"] for t in data["teachers"]], default=0) + 1
-        data["teachers"].insert(0, {
-            "id": new_id, "name": "Новый",
-            "subjects": [], "unavailable_slots": [],
-        })
-        save_data(data)
-        render_teachers()
+        """Добавляет учителя в БД."""
+        add_teacher_db("Новый")
+        reload_and_render()
 
-    # ========================================================================
-    # Вкладка «Классы»
-    # ========================================================================
+    # Вкладка «Классы» (SQL)
 
     classes_list = ft.Column(spacing=12)
 
     def render_classes():
+        """Перерисовывает карточки классов из SQL."""
         classes_list.controls.clear()
+
         wrapper = ft.Row(wrap=True, spacing=15, run_spacing=15, expand=True)
         classes_list.controls.append(wrapper)
 
-        for i, c in enumerate(data["classes"]):
+        for c in data["classes"]:
+            c_id = c["id"]
 
-            def make_name_submit(idx):
+            def make_name_submit(cid):
                 def handler(e):
-                    data["classes"][idx]["name"] = e.control.value
-                    save_data(data)
-                    render_subjects()
-                    render_classes()
+                    update_class(cid, name=e.control.value)
+                    reload_and_render()
                 return handler
 
-            def make_del(idx):
+            def make_stud_submit(cid):
                 def handler(e):
-                    removed_name = data["classes"][idx]["name"]
-                    data["classes"].pop(idx)
-                    for subj in data["subjects"]:
-                        if removed_name in subj.get("hours", {}):
-                            del subj["hours"][removed_name]
-                    save_data(data)
-                    render_classes()
-                    render_subjects()
+                    try:
+                        update_class(cid, students=int(e.control.value))
+                        reload_and_render()
+                    except ValueError:
+                        pass
+                return handler
+
+            def make_del(cid):
+                def handler(e):
+                    delete_class_db(cid)
+                    reload_and_render()
                 return handler
 
             card_content = ft.Column([
@@ -664,18 +566,18 @@ def main(page: ft.Page):
                         width=50, height=50, bgcolor=ACCENT,
                         border_radius=12, alignment=ft.Alignment.CENTER,
                     ),
-                    ft.IconButton(ft.Icons.DELETE, icon_color="red", on_click=make_del(i)),
+                    ft.IconButton(ft.Icons.DELETE, icon_color="red",
+                                  on_click=make_del(c_id)),
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
 
                 ft.TextField(
                     value=c["name"], label="Название (Enter — обновить)",
-                    on_change=make_save_handler("classes", i, "name"),
-                    on_submit=make_name_submit(i),
+                    on_submit=make_name_submit(c_id),
                     border_color=CARD_BORDER, focused_border_color=ACCENT,
                 ),
                 ft.TextField(
-                    value=str(c["students"]), label="Учеников",
-                    on_change=make_save_handler("classes", i, "students", int),
+                    value=str(c["students"]), label="Учеников (Enter — обновить)",
+                    on_submit=make_stud_submit(c_id),
                     border_color=CARD_BORDER, focused_border_color=ACCENT,
                 ),
             ], spacing=8)
@@ -689,70 +591,57 @@ def main(page: ft.Page):
         page.update()
 
     def add_class(e):
-        new_id = max([c["id"] for c in data["classes"]], default=0) + 1
-        data["classes"].insert(0, {"id": new_id, "name": "Новый", "students": 25})
-        save_data(data)
-        render_classes()
-        render_subjects()
+        """Добавляет класс в БД."""
+        add_class_db("Новый", 25)
+        reload_and_render()
 
-    # ========================================================================
-    # Вкладка «Предметы»
-    # ========================================================================
+
+         # Вкладка «Предметы»
 
     subjects_list = ft.Column(spacing=5)
 
     def render_subjects():
+        """Перерисовывает карточки предметов из SQL."""
         subjects_list.controls.clear()
-        class_names = [c["name"] for c in data["classes"]]
+        classes = data["classes"]
 
-        for i, s in enumerate(data["subjects"]):
+        for s in data["subjects"]:
+            s_id = s["id"]
 
-            def make_name_handler(idx):
+            def make_name_submit(sid):
                 def handler(e):
-                    old_name = data["subjects"][idx]["name"]
-                    new_name = e.control.value
-                    if old_name == new_name:
-                        return
-                    data["subjects"][idx]["name"] = new_name
-                    # Обновляем у всех учителей
-                    for t in data["teachers"]:
-                        t["subjects"] = [
-                            new_name if subj == old_name else subj
-                            for subj in t["subjects"]
-                        ]
-                    save_data(data)
-                    render_teachers()
+                    update_subject_name(sid, e.control.value)
+                    reload_and_render()
                 return handler
 
-            def make_del(idx):
+            def make_del(sid):
                 def handler(e):
-                    removed_name = data["subjects"][idx]["name"]
-                    for t in data["teachers"]:
-                        t["subjects"] = [s for s in t["subjects"] if s != removed_name]
-                    data["subjects"].pop(idx)
-                    save_data(data)
-                    render_subjects()
-                    render_teachers()
+                    delete_subject_db(sid)
+                    reload_and_render()
                 return handler
 
-            # Поля часов
             hours_inputs = []
-            for cname in class_names:
-                def make_hours(idx, cn):
+            for c in classes:
+                c_id = c["id"]
+                c_name = c["name"]
+                current_hours = s["hours"].get(c_name, 0)
+
+                def make_hours_submit(cid, sid):
                     def handler(e):
                         try:
-                            data["subjects"][idx]["hours"][cn] = int(e.control.value or 0)
-                            save_data(data)
+                            h = int(e.control.value or 0)
+                            set_lesson_hours(cid, sid, h)
+                            reload_and_render()
                         except ValueError:
                             pass
                     return handler
 
                 hours_inputs.append(ft.Column([
-                    ft.Text(cname, size=12, color=TEXT_MUTED),
+                    ft.Text(c_name, size=12, color=TEXT_MUTED),
                     ft.TextField(
-                        value=str(s["hours"].get(cname, 0)),
+                        value=str(current_hours),
                         width=70,
-                        on_change=make_hours(i, cname),
+                        on_submit=make_hours_submit(c_id, s_id),
                         border_color=CARD_BORDER,
                         focused_border_color=ACCENT,
                     ),
@@ -762,12 +651,14 @@ def main(page: ft.Page):
                 content=ft.Column([
                     ft.Row([
                         ft.TextField(
-                            value=s["name"], label="Предмет", width=250,
-                            on_change=make_name_handler(i),
+                            value=s["name"], label="Предмет (Enter — обновить)",
+                            width=250,
+                            on_submit=make_name_submit(s_id),
                             border_color=CARD_BORDER,
                             focused_border_color=ACCENT,
                         ),
-                        ft.IconButton(ft.Icons.DELETE, icon_color="red", on_click=make_del(i)),
+                        ft.IconButton(ft.Icons.DELETE, icon_color="red",
+                                      on_click=make_del(s_id)),
                     ]),
                     ft.Row(hours_inputs, wrap=True),
                 ]),
@@ -780,29 +671,51 @@ def main(page: ft.Page):
         page.update()
 
     def add_subject(e):
-        data["subjects"].insert(0, {"name": "Новый предмет", "hours": {}})
-        save_data(data)
-        render_subjects()
-        render_teachers()
+        """Добавляет предмет в БД."""
+        add_subject_db("Новый предмет")
+        reload_and_render()
 
-    # ========================================================================
+
+
     # Вкладка «Кабинеты»
-    # ========================================================================
 
     rooms_list = ft.Column(spacing=12)
 
     def render_rooms():
+        """Перерисовывает карточки кабинетов из SQL."""
         rooms_list.controls.clear()
+
         wrapper = ft.Row(wrap=True, spacing=15, run_spacing=15, expand=True)
         rooms_list.controls.append(wrapper)
 
-        for i, r in enumerate(data["rooms"]):
+        for r in data["rooms"]:
+            r_id = r["id"]
 
-            def make_del(idx):
+            def make_name_submit(rid):
                 def handler(e):
-                    data["rooms"].pop(idx)
-                    save_data(data)
-                    render_rooms()
+                    update_room(rid, name=e.control.value)
+                    reload_and_render()
+                return handler
+
+            def make_capacity_submit(rid):
+                def handler(e):
+                    try:
+                        update_room(rid, capacity=int(e.control.value))
+                        reload_and_render()
+                    except ValueError:
+                        pass
+                return handler
+
+            def make_spec_submit(rid):
+                def handler(e):
+                    update_room(rid, subject_specific=e.control.value)
+                    reload_and_render()
+                return handler
+
+            def make_del(rid):
+                def handler(e):
+                    delete_room_db(rid)
+                    reload_and_render()
                 return handler
 
             card_content = ft.Column([
@@ -812,21 +725,28 @@ def main(page: ft.Page):
                         width=50, height=50, bgcolor=ACCENT_2,
                         border_radius=12, alignment=ft.Alignment.CENTER,
                     ),
-                    ft.IconButton(ft.Icons.DELETE, icon_color="red", on_click=make_del(i)),
+                    ft.IconButton(ft.Icons.DELETE, icon_color="red",
+                                  on_click=make_del(r_id)),
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
 
-                ft.TextField(value=r["name"], label="Название",
-                             on_change=make_save_handler("rooms", i, "name"),
-                             border_color=CARD_BORDER,
-                             focused_border_color=ACCENT),
-                ft.TextField(value=str(r["capacity"]), label="Мест",
-                             on_change=make_save_handler("rooms", i, "capacity", int),
-                             border_color=CARD_BORDER,
-                             focused_border_color=ACCENT),
-                ft.TextField(value=r["subject_specific"], label="Спец. для предмета",
-                             on_change=make_save_handler("rooms", i, "subject_specific"),
-                             border_color=CARD_BORDER,
-                             focused_border_color=ACCENT),
+                ft.TextField(
+                    value=r["name"], label="Название (Enter — обновить)",
+                    on_submit=make_name_submit(r_id),
+                    border_color=CARD_BORDER,
+                    focused_border_color=ACCENT,
+                ),
+                ft.TextField(
+                    value=str(r["capacity"]), label="Мест (Enter — обновить)",
+                    on_submit=make_capacity_submit(r_id),
+                    border_color=CARD_BORDER,
+                    focused_border_color=ACCENT,
+                ),
+                ft.TextField(
+                    value=r["subject_specific"], label="Спец. для предмета (Enter — обновить)",
+                    on_submit=make_spec_submit(r_id),
+                    border_color=CARD_BORDER,
+                    focused_border_color=ACCENT,
+                ),
             ], spacing=8)
 
             wrapper.controls.append(
@@ -838,17 +758,11 @@ def main(page: ft.Page):
         page.update()
 
     def add_room(e):
-        new_id = max([r["id"] for r in data["rooms"]], default=100) + 1
-        data["rooms"].insert(0, {
-            "id": new_id, "name": str(new_id),
-            "capacity": 30, "subject_specific": "",
-        })
-        save_data(data)
-        render_rooms()
+        """Добавляет кабинет в БД."""
+        add_room_db("101", 30, "")
+        reload_and_render()
 
-    # ========================================================================
     # Вкладка «Расписание»
-    # ========================================================================
 
     schedule_output = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True)
 
@@ -863,7 +777,7 @@ def main(page: ft.Page):
         return None
 
     def move_lesson(clicked_lesson, day, slot):
-        """Клик по ячейке: выбрать / переместить / поменять местами."""
+        """Клик по ячейке: выбрать / переместить / поменять."""
         sel = selected_lesson["obj"]
 
         if clicked_lesson is None:
@@ -937,14 +851,8 @@ def main(page: ft.Page):
         )
 
     def render_table(items, mode):
-        """
-        Рисует одну таблицу расписания.
-
-        mode = "class" → items это список названий классов
-        mode = "teacher" → items это список id учителей
-        """
+        """Рисует таблицу расписания по классам или учителям."""
         for item in items:
-            # Заголовок (класс или учитель)
             if mode == "class":
                 title = f"Класс {item}"
             else:
@@ -1020,8 +928,62 @@ def main(page: ft.Page):
         show_snack(f"{'✅' if ok else '❌'} {message}",
                    "#10b981" if ok else "#ef4444")
 
+    def build_warnings_block(warnings):
+        """Сворачивающийся блок с предупреждениями."""
+        if not warnings:
+            return ft.Container()
+
+        details = ft.Column(
+            [ft.Container(
+                content=ft.Column([
+                    ft.Row([
+                        ft.Text("⚠️", size=14),
+                        ft.Text(p.title, size=13, weight=ft.FontWeight.BOLD,
+                                color="#f59e0b"),
+                    ], spacing=6),
+                    ft.Text(p.details, size=12, color=TEXT_MUTED),
+                ], spacing=4),
+                padding=8,
+                border=ft.Border.all(1, "#f59e0b"),
+                border_radius=8,
+                margin=ft.Margin.only(bottom=4),
+            ) for p in warnings],
+            spacing=4, visible=False,
+        )
+
+        def toggle(e):
+            details.visible = not details.visible
+            arrow.content = ft.Icon(
+                ft.Icons.KEYBOARD_ARROW_DOWN if not details.visible
+                else ft.Icons.KEYBOARD_ARROW_UP,
+                color="#f59e0b", size=18,
+            )
+            try:
+                details.update()
+                arrow.update()
+            except AssertionError:
+                pass
+
+        arrow = ft.Container(
+            content=ft.Icon(ft.Icons.KEYBOARD_ARROW_DOWN, color="#f59e0b", size=18),
+            on_click=toggle, ink=True, padding=4, border_radius=6,
+        )
+
+        header = ft.Container(
+            content=ft.Row([
+                ft.Text(f"⚠️ {len(warnings)} предупреждений",
+                        size=13, weight=ft.FontWeight.BOLD, color="#f59e0b"),
+                arrow,
+            ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            on_click=toggle, ink=True,
+            padding=ft.Padding.symmetric(horizontal=10, vertical=4),
+            border_radius=8,
+        )
+
+        return ft.Column([header, details], spacing=2)
+
     def check_demo_limit():
-        """Проверяет демо-лимит. Возвращает True, если можно продолжать."""
+        """Проверяет демо-лимит. True — можно продолжать."""
         if lic.is_activated():
             return True
 
@@ -1216,9 +1178,7 @@ def main(page: ft.Page):
         render_schedule()
         page.update()
 
-    # ========================================================================
     # Вкладки
-    # ========================================================================
 
     def make_tab_content(title, subtitle, button_text, on_click, content):
         """Универсальная вкладка."""
@@ -1289,12 +1249,20 @@ def main(page: ft.Page):
                             ], expand=True, scroll=ft.ScrollMode.AUTO),
                             padding=30, expand=True, bgcolor=BG,
                         ),
+
+                        # Учителя
                         make_tab_content("Учителя", "Список и предметы",
                                          "➕ Добавить учителя", add_teacher, teachers_list),
+
+                        # Классы
                         make_tab_content("Классы", "Классы и количество учеников",
                                          "➕ Добавить класс", add_class, classes_list),
+
+                        # Предметы
                         make_tab_content("Предметы", "Нагрузка в часах по классам",
                                          "➕ Добавить предмет", add_subject, subjects_list),
+
+                        # Кабинеты
                         make_tab_content("Кабинеты", "Аудитории и вместимость",
                                          "➕ Добавить кабинет", add_room, rooms_list),
 
@@ -1302,52 +1270,23 @@ def main(page: ft.Page):
                         ft.Container(
                             content=ft.Column([
                                 page_title("Справка", "Правила и ограничения"),
-                                ft.Text("Ниже — что можно и нельзя делать, чтобы расписание составлялось корректно.",
+                                ft.Text("Ниже — что можно и нельзя делать.",
                                         color=TEXT_MUTED, size=13),
                                 ft.Divider(color=CARD_BORDER),
                                 ft.Text("🔑 Лицензия", size=18, weight=ft.FontWeight.BOLD, color=TEXT_MAIN),
                                 ft.Text("• Демо-версия: не более 5 классов.\n"
                                         "• Полная версия: без ограничений.\n"
-                                        "• Ключ: SP-XXXX-XXXX-XXXX.\n"
-                                        "• Ключ вводится один раз, хранится в системе.\n"
-                                        "• При обновлении программы ключ сохраняется.",
+                                        "• Ключ: SP-XXXX-XXXX-XXXX.",
                                         color=TEXT_MAIN, size=13),
                                 ft.Divider(color=CARD_BORDER),
                                 ft.Text("📌 Общие правила", size=18, weight=ft.FontWeight.BOLD, color=TEXT_MAIN),
-                                ft.Text("• Всего в неделе: 5 дней × 7 уроков = 35 слотов.\n"
-                                        "• Сумма часов класса ≤ 35.",
+                                ft.Text("• Всего в неделе: 5 дней × 8 уроков = 40 слотов.\n"
+                                        "• Сумма часов класса ≤ 40.",
                                         color=TEXT_MAIN, size=13),
                                 ft.Divider(color=CARD_BORDER),
-                                ft.Text("👩‍🏫 Учителя", size=18, weight=ft.FontWeight.BOLD, color=TEXT_MAIN),
-                                ft.Text("• У каждого предмета должен быть учитель.\n"
-                                        "• 🚫 Запрещённые слоты — иконка 🚫 рядом с учителем.",
-                                        color=TEXT_MAIN, size=13),
-                                ft.Divider(color=CARD_BORDER),
-                                ft.Text("🏫 Классы", size=18, weight=ft.FontWeight.BOLD, color=TEXT_MAIN),
-                                ft.Text("• Новый класс появляется во всех предметах с 0 часов.",
-                                        color=TEXT_MAIN, size=13),
-                                ft.Divider(color=CARD_BORDER),
-                                ft.Text("📚 Предметы", size=18, weight=ft.FontWeight.BOLD, color=TEXT_MAIN),
-                                ft.Text("• 0 часов = предмет не изучается классом.",
-                                        color=TEXT_MAIN, size=13),
-                                ft.Divider(color=CARD_BORDER),
-                                ft.Text("🚪 Кабинеты", size=18, weight=ft.FontWeight.BOLD, color=TEXT_MAIN),
-                                ft.Text("• В одном кабинете не могут идти два урока одновременно.",
-                                        color=TEXT_MAIN, size=13),
-                                ft.Divider(color=CARD_BORDER),
-                                ft.Text("✏️ Редактирование расписания",
-                                        size=18, weight=ft.FontWeight.BOLD, color=TEXT_MAIN),
-                                ft.Text("• Клик по уроку — выделить.\n"
-                                        "• Клик по пустой клетке — переместить.\n"
-                                        "• Клик по другому уроку — поменять местами.",
-                                        color=TEXT_MAIN, size=13),
-                                ft.Divider(color=CARD_BORDER),
-                                ft.Text("⚠️ Если расписание не составляется",
-                                        size=18, weight=ft.FontWeight.BOLD, color=TEXT_MAIN),
-                                ft.Text("1. Проверь, что у каждого предмета есть учитель.\n"
-                                        "2. Проверь, что сумма часов у класса ≤ 35.\n"
-                                        "3. Добавь учителей или кабинеты.\n"
-                                        "4. Уменьши нагрузку у проблемных классов.",
+                                ft.Text("✏️ Редактирование", size=18, weight=ft.FontWeight.BOLD, color=TEXT_MAIN),
+                                ft.Text("• Изменения — по Enter.\n"
+                                        "• Клик по уроку → клик по клетке — переместить.",
                                         color=TEXT_MAIN, size=13),
                             ], expand=True, scroll=ft.ScrollMode.AUTO),
                             padding=30, expand=True, bgcolor=BG,
