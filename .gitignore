@@ -1,5 +1,5 @@
 # ============================================================
-# ГЛАВНОЕ ПРАВИЛО: игнорировать всё, кроме явно разрешённого
+# Игнорировать всё в корне, кроме исходников
 # ============================================================
 /*
 !*.py
@@ -12,11 +12,11 @@
 !*.yaml
 !.gitignore
 !LICENSE
-!template.xlsx
 !requirements.txt
+!template.xlsx
 
 # ============================================================
-# Но даже внутри разрешённых папок — игнорировать мусор
+# Мусор — в любом месте
 # ============================================================
 __pycache__/
 *.py[cod]
@@ -30,48 +30,40 @@ __pycache__/
 *.pkg
 *.msi
 
-# Виртуальные окружения
 venv/
 .venv/
 env/
 ENV/
 
-# PyInstaller
 build/
 dist/
 *.spec
 *.manifest
 
-# IDE
 .idea/
 .vscode/
 *.swp
 *.swo
 
-# OS
 .DS_Store
 Thumbs.db
 
-# Данные
 school_data.json
 keys.txt
 issued_keys.txt
 
-# Документы / Excel
 *.docx
 README.txt
 *.xlsx
 *.xls
 ~$*.xlsx
 
-# Тестовые/временные
 test_export.py
 test_*.py
 generate_test_data.py
 advisor.zip
 app.py
 
-# Папки со сборками (на любом уровне)
 **/Готовые сборки/
 **/Компиляция/
 **/build/
@@ -81,3 +73,5 @@ app.py
 **/out/
 **/release/
 **/debug/
+!template.xlsx
+!requirements.txt
