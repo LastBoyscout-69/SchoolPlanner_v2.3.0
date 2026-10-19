@@ -13,7 +13,7 @@ from database import get_connection, init_db
 
 def _load_teachers(conn):
     """Загружает учителей с их предметами и запретами."""
-    cur = conn.execute("SELECT id, name FROM teachers ORDER BY id")
+    cur = conn.execute("SELECT id, name FROM teachers ORDER BY id DESC")
     teachers = []
 
     for row in cur.fetchall():
@@ -50,7 +50,7 @@ def _load_teachers(conn):
 
 def _load_classes(conn):
     """Загружает классы."""
-    cur = conn.execute("SELECT id, name, students FROM classes ORDER BY id")
+    cur = conn.execute("SELECT id, name, students FROM classes ORDER BY id DESC")
     return [
         {"id": r["id"], "name": r["name"], "students": r["students"]}
         for r in cur.fetchall()
@@ -58,34 +58,41 @@ def _load_classes(conn):
 
 
 def _load_subjects(conn):
-    """Загружает предметы с часами по классам."""
-    cur = conn.execute("SELECT id, name FROM subjects ORDER BY id")
+    """Загружает предметы с часами и учителями по классам."""
+    cur = conn.execute("SELECT id, name FROM subjects ORDER BY id DESC")
     subjects = []
 
     for row in cur.fetchall():
         s_id = row["id"]
 
         cur2 = conn.execute(
-            "SELECT c.name AS class_name, lp.hours "
+            "SELECT c.name AS class_name, lp.hours, lp.teacher_id, "
+            "t.name AS teacher_name "
             "FROM lesson_plan lp "
             "JOIN classes c ON c.id = lp.class_id "
+            "LEFT JOIN teachers t ON t.id = lp.teacher_id "
             "WHERE lp.subject_id = ?",
             (s_id,)
         )
-        hours = {r["class_name"]: r["hours"] for r in cur2.fetchall()}
+        hours = {}
+        teachers_by_class = {}
+        for r in cur2.fetchall():
+            hours[r["class_name"]] = r["hours"]
+            if r["teacher_name"]:
+                teachers_by_class[r["class_name"]] = r["teacher_name"]
 
         subjects.append({
             "id": s_id,
             "name": row["name"],
             "hours": hours,
+            "teachers": teachers_by_class,   # ← новое поле
         })
     return subjects
-
 
 def _load_rooms(conn):
     """Загружает кабинеты."""
     cur = conn.execute(
-        "SELECT id, name, capacity, subject_specific FROM rooms ORDER BY id"
+        "SELECT id, name, capacity, subject_specific FROM rooms ORDER BY id DESC"
     )
     return [
         {

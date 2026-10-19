@@ -1,0 +1,128 @@
+import os
+import platform
+import shutil
+import subprocess
+from pathlib import Path
+from typing import Optional
+
+from rich.console import Console
+from rich.progress import Progress
+
+from flet_cli.utils.distros import download_with_progress, extract_with_progress
+
+FLUTTER_GIT_URL = "https://github.com/flutter/flutter.git"
+
+
+def is_arm64_linux() -> bool:
+    """Whether the host is arm64 Linux, which has no prebuilt Flutter SDK."""
+    return platform.system() == "Linux" and platform.machine().lower() in (
+        "aarch64",
+        "arm64",
+    )
+
+
+def get_flutter_url(version):
+    """Determines the Flutter archive URL based on the platform."""
+    system = platform.system()
+    machine = platform.machine()
+
+    url_root = "https://storage.googleapis.com/flutter_infra_release/releases/stable"
+    if system == "Windows":
+        return f"{url_root}/windows/flutter_windows_{version}-stable.zip"
+    elif system == "Darwin":
+        if machine == "arm64":
+            return f"{url_root}/macos/flutter_macos_arm64_{version}-stable.zip"
+        else:  # Assume x86_64 for other cases
+            return f"{url_root}/macos/flutter_macos_{version}-stable.zip"
+    elif system == "Linux":
+        return f"{url_root}/linux/flutter_linux_{version}-stable.tar.xz"
+    else:
+        raise ValueError(f"Unsupported platform: {system}")
+
+
+def get_flutter_dir(version):
+    """
+    Return the local install directory for a specific SDK version.
+
+    Args:
+        version: SDK version string.
+
+    Returns:
+        Absolute path under the user's home directory: `~/flutter/<version>`.
+    """
+
+    home_dir = Path.home()
+    return os.path.join(home_dir, "flutter", version)
+
+
+def install_flutter(version, log, progress: Optional[Progress] = None):
+    """
+    Ensure the requested SDK version is installed and return its directory.
+
+    If the version is not present, this function downloads the platform archive,
+    extracts it into a temporary directory, moves the extracted runtime to
+    `~/flutter/<version>`, and removes temporary files.
+
+    Args:
+        version: SDK version string to install.
+        log: Callback used for status messages.
+        progress: Optional rich progress instance used for download/extract UI.
+
+    Returns:
+        Absolute path to the installed SDK directory.
+    """
+
+    install_dir = get_flutter_dir(version)
+    home_dir = Path.home()
+
+    if not os.path.exists(install_dir):
+        if is_arm64_linux():
+            # Flutter publishes no prebuilt arm64 Linux SDK (its releases are
+            # x64-only), so clone the SDK at the version tag, then precache its
+            # engine artifacts. The prebuilt archives ship these under
+            # `bin/cache` (incl. the `sky_engine` package that `dart run` /
+            # `flutter build` resolve); a bare clone does not, so without the
+            # precache pub solving fails with "could not find package sky_engine".
+            # The downloaded artifacts are arch-appropriate (mirrors fvm/git).
+            os.makedirs(os.path.dirname(install_dir), exist_ok=True)
+            log(f"Cloning Flutter {version} for arm64 Linux from {FLUTTER_GIT_URL}...")
+            subprocess.run(
+                ["git", "clone", "--depth", "1", "--branch", version]
+                + [FLUTTER_GIT_URL, install_dir],
+                check=True,
+            )
+            log(f"Precaching Flutter {version} engine artifacts...")
+            flutter_exe = os.path.join(install_dir, "bin", "flutter")
+            subprocess.run([flutter_exe, "precache", "--linux"], check=True)
+        else:
+            url = get_flutter_url(version)
+            archive_name = os.path.basename(url)
+            archive_path = os.path.join(home_dir, archive_name)
+
+            log(f"Downloading Flutter {version} from {url}...")
+            download_with_progress(url, archive_path, progress=progress)
+
+            log(f"Extracting Flutter to {install_dir}...")
+            temp_extract_dir = os.path.join(home_dir, "flutter", f"{version}_temp")
+            os.makedirs(temp_extract_dir, exist_ok=True)
+
+            extract_with_progress(archive_path, temp_extract_dir, progress=progress)
+
+            # Move extracted 'flutter' directory contents to final destination
+            flutter_root = os.path.join(temp_extract_dir, "flutter")
+            shutil.move(flutter_root, install_dir)
+
+            # Clean up
+            os.remove(archive_path)
+            shutil.rmtree(temp_extract_dir)
+
+        log(f"Flutter {version} installed at {install_dir}.")
+    return install_dir
+
+
+# Example usage:
+if __name__ == "__main__":
+    flutter_version = "3.24.3"
+    console = Console()
+    install_dir = install_flutter(flutter_version, lambda m: console.log(m))
+    print(f"Flutter is ready at: {install_dir}")

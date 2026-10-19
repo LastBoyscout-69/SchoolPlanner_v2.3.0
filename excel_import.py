@@ -363,7 +363,12 @@ def import_from_excel(filepath):
 
     conn = get_connection()
     try:
-        # Импортируем по порядку (важна последовательность для FK)
+        # Очищаем таблицы перед импортом
+        conn.execute("DELETE FROM lesson_plan")
+        conn.execute("DELETE FROM teacher_subjects")
+        conn.execute("DELETE FROM teacher_unavailable")
+
+        # Импортируем по порядку
         import_school(conn, data["school"])
         import_subjects(conn, data["subjects"])
         import_classes(conn, data["classes"])
@@ -387,5 +392,5 @@ def import_from_excel(filepath):
         conn.close()
 
 if __name__ == "__main__":
-    ok, msg = import_from_excel("Шаблон_импорта.xlsx")
+    ok, msg = import_from_excel("template.xlsx")
     print(msg)

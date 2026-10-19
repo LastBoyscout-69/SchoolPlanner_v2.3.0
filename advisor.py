@@ -111,7 +111,10 @@ def analyze(data):
         load = 0
         for s in subjects:
             if s["name"] in t.get("subjects", []):
-                load += sum(s.get("hours", {}).values())
+                teachers_map = s.get("teachers", {})
+                for cname, hours in s.get("hours", {}).items():
+                    if teachers_map.get(cname) == t["name"]:
+                        load += hours
 
         unavailable = len(t.get("unavailable_slots", []))
         available = MAX_SLOTS_PER_WEEK - unavailable

@@ -1,7 +1,7 @@
 """
 excel_template.py — генератор шаблона Excel для импорта.
 
-Создаёт файл Шаблон_импорта.xlsx с 6 листами и шапками.
+Создаёт файл template.xlsx с 6 листами и шапками.
 """
 
 from openpyxl import Workbook
@@ -90,5 +90,5 @@ def create_template(filepath):
 
 
 if __name__ == "__main__":
-    ok, msg = create_template("Шаблон_импорта.xlsx")
+    ok, msg = create_template("template.xlsx")
     print(msg)
