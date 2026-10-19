@@ -1,21 +1,46 @@
-# Python
+# ============================================================
+# ГЛАВНОЕ ПРАВИЛО: игнорировать всё, кроме явно разрешённого
+# ============================================================
+/*
+!*.py
+!*.md
+!*.txt
+!*.toml
+!*.cfg
+!*.ini
+!*.yml
+!*.yaml
+!.gitignore
+!LICENSE
+!template.xlsx
+!requirements.txt
+
+# ============================================================
+# Но даже внутри разрешённых папок — игнорировать мусор
+# ============================================================
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-
-# PyInstaller
-build/
-dist/
-*.spec
-*.manifest
+*.dll
+*.pyd
+*.exe
+*.zip
+*.pkg
+*.msi
 
 # Виртуальные окружения
 venv/
 .venv/
 env/
 ENV/
+
+# PyInstaller
+build/
+dist/
+*.spec
+*.manifest
 
 # IDE
 .idea/
@@ -32,42 +57,27 @@ school_data.json
 keys.txt
 issued_keys.txt
 
-# Большие файлы
-*.exe
-*.zip
-*.pkg
-*.msi
-
-# Папки со сборками
-Готовые сборки/
-Компиляция/
-
-# Документы
+# Документы / Excel
 *.docx
-
-# Дополнительно
 README.txt
-*.spec
-advisor.zip
-app.py
-keys.txt
-school_data.json
-Готовые сборки/
-Компиляция/
-*.docx
-
-# Excel
-*.xlsx
-*.xls
-
-# Excel
 *.xlsx
 *.xls
 ~$*.xlsx
 
-# Тестовые файлы
+# Тестовые/временные
 test_export.py
 test_*.py
-
 generate_test_data.py
-template.xlsx
+advisor.zip
+app.py
+
+# Папки со сборками (на любом уровне)
+**/Готовые сборки/
+**/Компиляция/
+**/build/
+**/dist/
+**/bin/
+**/obj/
+**/out/
+**/release/
+**/debug/
