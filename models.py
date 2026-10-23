@@ -24,7 +24,7 @@ class Subject:
     name: str
     hours_per_week: Dict[str, int] = field(default_factory=dict)
     teachers: Dict[str, str] = field(default_factory=dict)  # {класс: имя_учителя}
-
+    difficulty: int = 0
 
 @dataclass
 class Room:

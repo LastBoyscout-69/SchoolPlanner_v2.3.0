@@ -50,16 +50,21 @@ def _load_teachers(conn):
 
 def _load_classes(conn):
     """Загружает классы."""
-    cur = conn.execute("SELECT id, name, students FROM classes ORDER BY id DESC")
+    cur = conn.execute("SELECT id, name, students, boys, girls FROM classes ORDER BY id DESC")
     return [
-        {"id": r["id"], "name": r["name"], "students": r["students"]}
+        {
+            "id": r["id"],
+            "name": r["name"],
+            "students": r["students"],
+            "boys": r["boys"] or 0,
+            "girls": r["girls"] or 0
+        }
         for r in cur.fetchall()
     ]
 
-
 def _load_subjects(conn):
     """Загружает предметы с часами и учителями по классам."""
-    cur = conn.execute("SELECT id, name FROM subjects ORDER BY id DESC")
+    cur = conn.execute("SELECT id, name, color, difficulty FROM subjects ORDER BY id DESC")
     subjects = []
 
     for row in cur.fetchall():
@@ -85,7 +90,9 @@ def _load_subjects(conn):
             "id": s_id,
             "name": row["name"],
             "hours": hours,
-            "teachers": teachers_by_class,   # ← новое поле
+            "teachers": teachers_by_class,
+            "color": row["color"] or "",
+            "difficulty": row["difficulty"] or 0,  # <--- Добавили сложность
         })
     return subjects
 
@@ -103,6 +110,8 @@ def _load_rooms(conn):
         }
         for r in cur.fetchall()
     ]
+
+
 def _load_school(conn):
     """Загружает информацию о школе."""
     cur = conn.execute("SELECT * FROM school LIMIT 1")
@@ -117,6 +126,7 @@ def _load_school(conn):
         "email": row["email"] or "",
         "academic_year": row["academic_year"] or "",
     }
+
 
 def load_data():
     """Загружает все данные из БД."""
@@ -236,7 +246,7 @@ def set_teacher_unavailable(teacher_id, slots):
 
 
 def add_class_db(name="Новый", students=25):
-    """Добавляет класс. Если имя занято — добавляет номер."""
+    """Добавляет класс."""
     conn = get_connection()
     try:
         base_name = name
@@ -249,7 +259,7 @@ def add_class_db(name="Новый", students=25):
             name = f"{base_name} {counter}"
 
         cur = conn.execute(
-            "INSERT INTO classes (name, students, shift) VALUES (?, ?, 1)",
+            "INSERT INTO classes (name, students, boys, girls, shift) VALUES (?, ?, 0, 0, 1)",
             (name, students)
         )
         conn.commit()
@@ -258,19 +268,30 @@ def add_class_db(name="Новый", students=25):
         conn.close()
 
 
-def update_class(class_id, name=None, students=None):
-    """Обновляет название и/или число учеников класса."""
+def update_class(class_id, name=None, students=None, boys=None, girls=None):
+    """Обновляет поля класса. Если переданы boys или girls — пересчитывает students."""
     conn = get_connection()
     try:
+        # Если передали мальчиков или девочек, сначала узнаем текущие значения
+        if boys is not None or girls is not None:
+            cur = conn.execute("SELECT boys, girls FROM classes WHERE id=?", (class_id,))
+            row = cur.fetchone()
+            current_boys = boys if boys is not None else row["boys"]
+            current_girls = girls if girls is not None else row["girls"]
+            students = current_boys + current_girls  # Автоматический пересчет
+
         if name is not None:
             conn.execute("UPDATE classes SET name=? WHERE id=?", (name, class_id))
         if students is not None:
             conn.execute("UPDATE classes SET students=? WHERE id=?", (students, class_id))
+        if boys is not None:
+            conn.execute("UPDATE classes SET boys=? WHERE id=?", (boys, class_id))
+        if girls is not None:
+            conn.execute("UPDATE classes SET girls=? WHERE id=?", (girls, class_id))
+
         conn.commit()
     finally:
         conn.close()
-
-
 def delete_class_db(class_id):
     """Удаляет класс."""
     conn = get_connection()
@@ -404,33 +425,18 @@ def delete_room_db(room_id):
 def get_lesson_plan_stats():
     """
     Возвращает статистику по учебному плану.
-
-    Возвращает dict:
-        {
-            "total_rows": int,           # всего строк в lesson_plan
-            "classes_with_plan": int,    # классов с планом
-            "classes_total": int,        # всего классов
-            "hours_by_class": {name: int},  # часы по классам
-            "max_hours": int,            # максимум часов у класса
-            "too_many_hours": [names],   # классы с > 40 часов
-            "teachers_assigned": int,    # строк с учителем
-        }
     """
     conn = get_connection()
     try:
-        # Всего строк в плане
         cur = conn.execute("SELECT COUNT(*) FROM lesson_plan")
         total_rows = cur.fetchone()[0]
 
-        # Всего классов
         cur = conn.execute("SELECT COUNT(*) FROM classes")
         classes_total = cur.fetchone()[0]
 
-        # Классы с планом
         cur = conn.execute("SELECT COUNT(DISTINCT class_id) FROM lesson_plan")
         classes_with_plan = cur.fetchone()[0]
 
-        # Часы по классам
         cur = conn.execute(
             "SELECT c.name AS name, SUM(lp.hours) AS hours "
             "FROM lesson_plan lp "
@@ -442,10 +448,7 @@ def get_lesson_plan_stats():
         max_hours = max(hours_by_class.values()) if hours_by_class else 0
         too_many_hours = [n for n, h in hours_by_class.items() if h > 40]
 
-        # Строки с учителем
-        cur = conn.execute(
-            "SELECT COUNT(*) FROM lesson_plan WHERE teacher_id IS NOT NULL"
-        )
+        cur = conn.execute("SELECT COUNT(*) FROM lesson_plan WHERE teacher_id IS NOT NULL")
         teachers_assigned = cur.fetchone()[0]
 
         return {
@@ -459,8 +462,56 @@ def get_lesson_plan_stats():
         }
     finally:
         conn.close()
-# Экспорт
 
+
+# --- Звонки ---
+
+def load_bells():
+    """Загружает расписание звонков из БД. Если пусто — создаёт дефолтное."""
+    conn = get_connection()
+    try:
+        cur = conn.execute("SELECT slot, start_time, end_time, break_time FROM bell_schedule ORDER BY slot")
+        bells = [dict(row) for row in cur.fetchall()]
+
+        if not bells:
+            default_bells = [
+                {"slot": 1, "start_time": "08:30", "end_time": "09:15", "break_time": 10},
+                {"slot": 2, "start_time": "09:25", "end_time": "10:10", "break_time": 20},
+                {"slot": 3, "start_time": "10:30", "end_time": "11:15", "break_time": 20},
+                {"slot": 4, "start_time": "11:35", "end_time": "12:20", "break_time": 10},
+                {"slot": 5, "start_time": "12:30", "end_time": "13:15", "break_time": 10},
+                {"slot": 6, "start_time": "13:25", "end_time": "14:10", "break_time": 10},
+                {"slot": 7, "start_time": "14:20", "end_time": "15:05", "break_time": 10},
+                {"slot": 8, "start_time": "15:15", "end_time": "16:00", "break_time": 0},
+            ]
+            for b in default_bells:
+                conn.execute(
+                    "INSERT INTO bell_schedule (slot, start_time, end_time, break_time) VALUES (?, ?, ?, ?)",
+                    (b["slot"], b["start_time"], b["end_time"], b["break_time"])
+                )
+            conn.commit()
+            return default_bells
+
+        return bells
+    finally:
+        conn.close()
+
+
+def save_bells(bells):
+    """Сохраняет изменения звонков в БД."""
+    conn = get_connection()
+    try:
+        for b in bells:
+            conn.execute(
+                "UPDATE bell_schedule SET start_time=?, end_time=?, break_time=? WHERE slot=?",
+                (b["start_time"], b["end_time"], b["break_time"], b["slot"])
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# --- Экспорт ---
 
 def export_json(filepath="school_data.json"):
     """Экспорт всех данных в JSON (резервная копия)."""
@@ -468,3 +519,58 @@ def export_json(filepath="school_data.json"):
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     return filepath
+def save_schedule_db(schedule):
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM schedule")
+        for l in schedule:
+            conn.execute(
+                "INSERT INTO schedule (day, slot, class_name, subject, teacher_id, room_id) VALUES (?, ?, ?, ?, ?, ?)",
+                (l.day, l.slot, l.class_name, l.subject, l.teacher_id, l.room_id)
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+def load_schedule_db():
+    conn = get_connection()
+    try:
+        cur = conn.execute("SELECT * FROM schedule ORDER BY day, slot")
+        return [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+def set_subject_color(subject_id, color):
+    """Устанавливает цвет предмета."""
+    conn = get_connection()
+    try:
+        conn.execute("UPDATE subjects SET color=? WHERE id=?", (color, subject_id))
+        conn.commit()
+    finally:
+        conn.close()
+def update_school_info(name, address, director, phone, email, academic_year):
+    """Сохраняет информацию о школе."""
+    conn = get_connection()
+    try:
+        cur = conn.execute("SELECT id FROM school LIMIT 1")
+        row = cur.fetchone()
+        if row is None:
+            conn.execute(
+                "INSERT INTO school (name, address, director, phone, email, academic_year) VALUES (?, ?, ?, ?, ?, ?)",
+                (name, address, director, phone, email, academic_year)
+            )
+        else:
+            conn.execute(
+                "UPDATE school SET name=?, address=?, director=?, phone=?, email=?, academic_year=? WHERE id=?",
+                (name, address, director, phone, email, academic_year, row["id"])
+            )
+        conn.commit()
+    finally:
+        conn.close()
+def set_subject_difficulty(subject_id, difficulty):
+    """Устанавливает сложность предмета."""
+    conn = get_connection()
+    try:
+        conn.execute("UPDATE subjects SET difficulty=? WHERE id=?", (difficulty, subject_id))
+        conn.commit()
+    finally:
+        conn.close()

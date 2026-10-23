@@ -27,8 +27,15 @@ from storage import (
     update_room,
     delete_room_db,
     get_lesson_plan_stats,
+    load_bells,
+    save_bells,
+    save_schedule_db,
+    load_schedule_db,
+    set_subject_color,
+    update_school_info,
+    set_subject_difficulty,
 )
-from models import Teacher, SchoolClass, Subject, Room
+from models import Teacher, SchoolClass, Subject, Room, Lesson
 from scheduler import Scheduler
 import license as lic
 from excel_export import export_to_excel
@@ -92,9 +99,19 @@ def main(page: ft.Page):
 
     # Загрузка данных
     data = load_data()
+    bells_data = load_bells()
 
     # Состояние расписания
     editable_schedule = []
+
+    # Загружаем сохраненное расписание из базы
+    saved_schedule = load_schedule_db()
+    if saved_schedule:
+        for r in saved_schedule:
+            editable_schedule.append(
+                Lesson(r["day"], r["slot"], r["class_name"], r["subject"], r["teacher_id"], r["room_id"])
+            )
+
     selected_lesson = {"obj": None}
     schedule_container = ft.Column(spacing=4)
 
@@ -103,18 +120,25 @@ def main(page: ft.Page):
         nonlocal data
         data = load_data()
         render_teachers()
-        render_classes()
         render_subjects()
         render_rooms()
+        render_classes_grid()
+        render_bells()
+        render_grid_table()
+        page.update()
 
     # Хелперы
 
     def subject_color(subject_name):
-        """Возвращает HEX-цвет предмета по его индексу."""
+        """Возвращает HEX-цвет предмета (из базы или по индексу)."""
         if not subject_name:
             return SUBJECT_COLORS[0]
         for i, s in enumerate(data["subjects"]):
             if s["name"] == subject_name:
+                # Если цвет сохранен в базе — возвращаем его
+                if s.get("color"):
+                    return s["color"]
+                # Иначе — по индексу
                 return SUBJECT_COLORS[i % len(SUBJECT_COLORS)]
         return "#64748b"
 
@@ -153,6 +177,72 @@ def main(page: ft.Page):
         )
         page.overlay.append(snack)
         snack.open = True
+        page.update()
+        # Диалог настроек школы
+    def open_school_settings(e):
+        school = data.get("school", {})
+
+        name_field = ft.TextField(label="Название школы", value=school.get("name", ""), width=400)
+        address_field = ft.TextField(label="Адрес", value=school.get("address", ""), width=400)
+        director_field = ft.TextField(label="Директор", value=school.get("director", ""), width=400)
+        phone_field = ft.TextField(label="Телефон", value=school.get("phone", ""), width=400)
+        email_field = ft.TextField(label="Email", value=school.get("email", ""), width=400)
+        year_field = ft.TextField(label="Учебный год", value=school.get("academic_year", ""), width=400)
+
+        def save_and_close(e):
+            update_school_info(
+                name_field.value,
+                address_field.value,
+                director_field.value,
+                phone_field.value,
+                email_field.value,
+                year_field.value
+            )
+            dlg.open = False
+            page.update()
+            reload_and_render()
+            show_snack("✅ Настройки школы сохранены!", "#10b981")
+
+        def close_dialog(e):
+            dlg.open = False
+            page.update()
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("⚙️ Настройки школы", color=TEXT_MAIN),
+            content=ft.Container(
+                content=ft.Column(
+                    [
+                        name_field,
+                        address_field,
+                        director_field,
+                        phone_field,
+                        email_field,
+                        year_field,
+                    ],
+                    spacing=10,
+                    scroll=ft.ScrollMode.AUTO,
+                ),
+                width=450,
+                height=450,
+            ),
+            actions=[
+                ft.TextButton("Отмена", on_click=close_dialog),
+                ft.Button(
+                    "💾 Сохранить",
+                    on_click=save_and_close,
+                    style=ft.ButtonStyle(
+                        bgcolor=ACCENT,
+                        color="white",
+                        shape=ft.RoundedRectangleBorder(radius=8),
+                    ),
+                ),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+
+        page.overlay.append(dlg)
+        dlg.open = True
         page.update()
 
     # Баннер демо-версии
@@ -326,6 +416,58 @@ def main(page: ft.Page):
     # Вкладка «Учителя»
 
     teachers_list = ft.Column(spacing=10)
+    classes_search = ft.TextField(
+        label="🔍 Поиск по классу",
+        expand=True,
+        border_color=CARD_BORDER,
+        focused_border_color=ACCENT,
+    )
+    subjects_search = ft.TextField(
+        label="🔍 Поиск по предмету",
+        # expand=True,
+        width=300,
+        border_color=CARD_BORDER,
+        focused_border_color=ACCENT,
+    )
+    grid_search_class = ft.TextField(
+        label="🔍 Поиск по классу",
+        width=250,
+        border_color=CARD_BORDER,
+        focused_border_color=ACCENT,
+        on_change=lambda e: render_grid_table(),
+    )
+    grid_container = ft.Column(spacing=5)
+
+    grid_search_subject = ft.TextField(
+        label="🔍 Поиск по предмету",
+        width=250,
+        border_color=CARD_BORDER,
+        focused_border_color=ACCENT,
+        on_change=lambda e: render_grid_table(),
+    )
+
+
+    # Функция для живого поиска (скрывает/показывает карточки)
+    def do_teacher_search(e):
+        search_text = (teachers_search.value or "").lower()
+        for container in teachers_list.controls:
+            if hasattr(container, "content") and container.content:
+                found = False
+                for c in container.content.controls:
+                    if isinstance(c, ft.TextField) and c.value:
+                        if search_text in c.value.lower():
+                            found = True
+                            break
+                container.visible = found
+        page.update()
+
+    teachers_search = ft.TextField(
+        label="🔍 Поиск по ФИО",
+        expand=True,
+        on_change=do_teacher_search,
+        border_color=CARD_BORDER,
+        focused_border_color=ACCENT,
+    )
 
     def open_slots_dialog(teacher_id, teacher_name, unavailable_slots):
         """Диалог запрещённых слотов для учителя."""
@@ -380,13 +522,11 @@ def main(page: ft.Page):
                                     grid_container.update()
                                 except AssertionError:
                                     pass
-
                         return handler
 
                     def make_reason_change(d, s):
                         def handler(e):
                             unavailable[(d, s)] = e.control.value
-
                         return handler
 
                     def make_clear(d, s):
@@ -397,7 +537,6 @@ def main(page: ft.Page):
                                 grid_container.update()
                             except AssertionError:
                                 pass
-
                         return handler
 
                     if (day, slot) in unavailable:
@@ -532,14 +671,12 @@ def main(page: ft.Page):
                 def handler(e):
                     update_teacher_name(tid, e.control.value)
                     reload_and_render()
-
                 return handler
 
             def make_del(tid):
                 def handler(e):
                     delete_teacher_db(tid)
                     reload_and_render()
-
                 return handler
 
             def make_subj_selected(tid):
@@ -549,7 +686,6 @@ def main(page: ft.Page):
                         add_teacher_subject(tid, val)
                         reload_and_render()
                     e.control.value = None
-
                 return handler
 
             name_field = ft.TextField(
@@ -572,12 +708,10 @@ def main(page: ft.Page):
 
             chips = ft.Row(spacing=3, wrap=True)
             for s in t["subjects"]:
-
                 def make_remove(tid, subj):
                     def handler(e):
                         remove_teacher_subject(tid, subj)
                         reload_and_render()
-
                     return handler
 
                 chips.controls.append(
@@ -623,9 +757,7 @@ def main(page: ft.Page):
                         ft.Icons.BLOCK,
                         icon_color="#f59e0b" if unavailable_list else "#94a3b8",
                         tooltip=("🚫 Запрещённые слоты\n\n" + tooltip),
-                        on_click=lambda e, tid=t_id, nm=t[
-                            "name"
-                        ], u=unavailable_list: open_slots_dialog(tid, nm, u),
+                        on_click=lambda e, tid=t_id, nm=t["name"], u=unavailable_list: open_slots_dialog(tid, nm, u),
                     ),
                     ft.IconButton(
                         ft.Icons.DELETE, icon_color="red", on_click=make_del(t_id)
@@ -652,104 +784,302 @@ def main(page: ft.Page):
         add_teacher_db("Новый")
         reload_and_render()
 
-    # Вкладка «Классы»
+    # Вкладка «Звонки»
 
-    classes_list = ft.Column(spacing=12)
+    bells_list = ft.Column(spacing=5)
 
-    def render_classes():
-        """Перерисовывает карточки классов из SQL."""
-        classes_list.controls.clear()
-
-        wrapper = ft.Row(wrap=True, spacing=15, run_spacing=15, expand=True)
-        classes_list.controls.append(wrapper)
-
-        for c in data["classes"]:
-            c_id = c["id"]
-
-            def make_name_submit(cid):
+    def render_bells():
+        bells_list.controls.clear()
+        rows = []
+        for i, b in enumerate(bells_data):
+            def make_change(idx, field):
                 def handler(e):
-                    update_class(cid, name=e.control.value)
-                    reload_and_render()
-
+                    bells_data[idx][field] = e.control.value
                 return handler
 
-            def make_stud_submit(cid):
-                def handler(e):
-                    try:
-                        update_class(cid, students=int(e.control.value))
-                        reload_and_render()
-                    except ValueError:
-                        pass
-
-                return handler
-
-            def make_del(cid):
-                def handler(e):
-                    delete_class_db(cid)
-                    reload_and_render()
-
-                return handler
-
-            card_content = ft.Column(
-                [
-                    ft.Row(
-                        [
-                            ft.Container(
-                                content=ft.Text(
-                                    class_badge(c["name"]),
-                                    size=18,
-                                    weight=ft.FontWeight.BOLD,
-                                    color="white",
-                                ),
-                                width=50,
-                                height=50,
-                                bgcolor=ACCENT,
-                                border_radius=12,
-                                alignment=ft.Alignment.CENTER,
-                            ),
-                            ft.IconButton(
-                                ft.Icons.DELETE,
-                                icon_color="red",
-                                on_click=make_del(c_id),
-                            ),
-                        ],
-                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    ),
-                    ft.TextField(
-                        value=c["name"],
-                        label="Название (Enter — обновить)",
-                        on_submit=make_name_submit(c_id),
-                        border_color=CARD_BORDER,
-                        focused_border_color=ACCENT,
-                    ),
-                    ft.TextField(
-                        value=str(c["students"]),
-                        label="Учеников (Enter — обновить)",
-                        on_submit=make_stud_submit(c_id),
-                        border_color=CARD_BORDER,
-                        focused_border_color=ACCENT,
-                    ),
-                ],
-                spacing=8,
-            )
-
-            wrapper.controls.append(
-                ft.Container(
-                    content=card_content,
-                    bgcolor=CARD_BG,
-                    border=ft.Border.all(1, CARD_BORDER),
-                    border_radius=12,
-                    padding=15,
-                    width=300,
+            rows.append(
+                ft.DataRow(
+                    cells=[
+                        ft.DataCell(ft.Text(str(b["slot"]), weight="bold")),
+                        ft.DataCell(ft.TextField(value=b["start_time"], width=80, on_change=make_change(i, "start_time"))),
+                        ft.DataCell(ft.TextField(value=b["end_time"], width=80, on_change=make_change(i, "end_time"))),
+                        ft.DataCell(ft.TextField(value=str(b["break_time"]), width=80, on_change=make_change(i, "break_time"))),
+                    ]
                 )
             )
 
+        table = ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text("Урок", weight="bold")),
+                ft.DataColumn(ft.Text("Начало", weight="bold")),
+                ft.DataColumn(ft.Text("Конец", weight="bold")),
+                ft.DataColumn(ft.Text("Перемена (мин)", weight="bold")),
+            ],
+            rows=rows,
+            heading_row_color=CARD_BG,
+            border=ft.Border.all(1, CARD_BORDER),
+            border_radius=10,
+            vertical_lines=ft.BorderSide(1, CARD_BORDER),
+            horizontal_lines=ft.BorderSide(1, CARD_BORDER),
+        )
+        bells_list.controls.append(ft.Container(content=table, bgcolor=CARD_BG, padding=15, border_radius=10))
         page.update()
 
-    def add_class(e):
-        """Добавляет класс в БД."""
-        add_class_db("Новый", 25)
-        reload_and_render()
+    def save_bells_ui(e):
+        try:
+            for b in bells_data:
+                b["break_time"] = int(b["break_time"])
+            save_bells(bells_data)
+            show_snack("✅ Звонки сохранены!", "#10b981")
+        except ValueError:
+            show_snack("❌ Перемена должна быть числом!", "#ef4444")
+
+    # Вкладка «Классы» и «Сетка уроков»
+
+    classes_grid = ft.Column(spacing=5)
+    schedule_grid = ft.Column(spacing=5)
+
+    def render_classes_grid():
+        classes_grid.controls.clear()
+
+        def handle_add_class(e):
+            add_class_db("Новый", 0)
+            reload_and_render()
+
+        def do_class_search(e):
+            search_text = (classes_search.value or "").lower()
+            # Проходим по всем элементам в списке
+            for container in classes_grid.controls:
+                # Нас интересует только таблица
+                if hasattr(container, "content") and isinstance(container.content, ft.DataTable):
+                    for row in container.content.rows:
+                        # Вторая ячейка в строке — это TextField с названием класса
+                        if len(row.cells) > 1:
+                            cell = row.cells[1]
+                            if hasattr(cell.content, "value"):
+                                class_name = cell.content.value or ""
+                                row.visible = search_text in class_name.lower()
+            page.update()
+
+        classes_search.on_change = do_class_search
+
+        # Кнопка добавления
+        classes_grid.controls.append(
+            ft.Row([
+                ft.Button(
+                    "➕ Добавить класс",
+                    on_click=handle_add_class,
+                    style=ft.ButtonStyle(
+                        bgcolor=ACCENT, color="white",
+                        shape=ft.RoundedRectangleBorder(radius=8)
+                    ),
+                )
+            ], alignment=ft.MainAxisAlignment.START)
+        )
+
+        rows = []
+        sorted_classes = sorted(data["classes"], key=lambda x: x["id"], reverse=True)
+
+        for i, c in enumerate(sorted_classes):
+            c_id = c["id"]
+
+            def make_handler(cid, field):
+                def handler(e):
+                    if field == "name":
+                        update_class(cid, name=e.control.value)
+                        return
+                    try:
+                        val = int(e.control.value or 0)
+                        if field == "boys":
+                            update_class(cid, boys=val)
+                        elif field == "girls":
+                            update_class(cid, girls=val)
+                        nonlocal data
+                        data = load_data()
+                        render_classes_grid()
+                    except ValueError:
+                        pass
+                return handler
+
+            def make_del_handler(cid):
+                def handler(e):
+                    delete_class_db(cid)
+                    reload_and_render()
+                return handler
+
+            rows.append(
+                ft.DataRow(
+                    cells=[
+                        ft.DataCell(ft.Text(str(i + 1))),
+                        ft.DataCell(
+                            ft.TextField(
+                                value=c["name"],
+                                width=100,
+                                text_size=14,
+                                content_padding=5,
+                                on_change=make_handler(c_id, "name"),
+                                on_submit=make_handler(c_id, "name"),
+                                on_blur=make_handler(c_id, "name")
+                            )
+                        ),
+                        ft.DataCell(
+                            ft.TextField(
+                                value=str(c.get("boys", 0)),
+                                width=60,
+                                text_size=14,
+                                content_padding=5,
+                                on_submit=make_handler(c_id, "boys"),
+                                on_blur=make_handler(c_id, "boys")
+                            )
+                        ),
+                        ft.DataCell(
+                            ft.TextField(
+                                value=str(c.get("girls", 0)),
+                                width=60,
+                                text_size=14,
+                                content_padding=5,
+                                on_submit=make_handler(c_id, "girls"),
+                                on_blur=make_handler(c_id, "girls")
+                            )
+                        ),
+                        ft.DataCell(
+                            ft.Text(str(c["students"]), weight="bold", size=16)
+                        ),
+                        ft.DataCell(
+                            ft.IconButton(
+                                ft.Icons.DELETE,
+                                icon_color="red",
+                                on_click=make_del_handler(c_id)
+                            )
+                        ),
+                    ]
+                )
+            )
+
+        table = ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text("Пл.", weight="bold")),
+                ft.DataColumn(ft.Text("Класс", weight="bold")),
+                ft.DataColumn(ft.Text("Мал.", weight="bold")),
+                ft.DataColumn(ft.Text("Дев.", weight="bold")),
+                ft.DataColumn(ft.Text("Числ.", weight="bold")),
+                ft.DataColumn(ft.Text("")),
+            ],
+            rows=rows,
+            heading_row_color=CARD_BG,
+            border=ft.Border.all(1, CARD_BORDER),
+            border_radius=10,
+            vertical_lines=ft.BorderSide(1, CARD_BORDER),
+            horizontal_lines=ft.BorderSide(1, CARD_BORDER),
+        )
+
+        classes_grid.controls.append(
+            ft.Container(content=table, bgcolor=CARD_BG, padding=15, border_radius=10)
+        )
+        page.update()
+
+    def render_grid_table():
+        """Рисует сетку уроков по дням недели (как в Excel)."""
+        grid_container.controls.clear()
+
+        saved_data = load_schedule_db()
+        if not saved_data:
+            grid_container.controls.append(
+                ft.Container(
+                    content=ft.Text("Расписание еще не составлено.", color=TEXT_MUTED, size=14),
+                    padding=20, bgcolor=CARD_BG, border_radius=10
+                )
+            )
+            page.update()
+            return
+
+        search_c = (grid_search_class.value or "").lower()
+        search_s = (grid_search_subject.value or "").lower()
+
+        # 1. Шапка таблицы (Класс + Дни недели)
+        header_row = [
+            ft.Container(
+                content=ft.Text("Класс", weight="bold", color=TEXT_MAIN, text_align=ft.TextAlign.CENTER),
+                width=100, padding=10, bgcolor=CARD_BG,
+                border=ft.Border.all(1, CARD_BORDER),
+                alignment=ft.Alignment.CENTER
+            )
+        ]
+        for day in DAY_NAMES:
+            header_row.append(
+                ft.Container(
+                    content=ft.Text(day, weight="bold", color=TEXT_MAIN, text_align=ft.TextAlign.CENTER),
+                    expand=1, padding=10, bgcolor=CARD_BG,
+                    border=ft.Border.all(1, CARD_BORDER),
+                    alignment=ft.Alignment.CENTER
+                )
+            )
+        grid_rows = [ft.Row(header_row, spacing=0)]
+
+        # 2. Строки по классам
+        sorted_classes = sorted(data["classes"], key=lambda x: x["id"], reverse=True)
+        for c in sorted_classes:
+            c_name = c["name"]
+
+            # Фильтр по классу
+            if search_c and search_c not in c_name.lower():
+                continue
+
+            row_cells = [
+                ft.Container(
+                    content=ft.Text(c_name, weight="bold", color=TEXT_MAIN),
+                    width=100, padding=10,
+                    border=ft.Border.all(1, CARD_BORDER),
+                    alignment=ft.Alignment.CENTER
+                )
+            ]
+
+            # Ячейки с уроками по дням
+            for day_idx in range(5):
+                day_lessons = [r for r in saved_data if r["class_name"] == c_name and r["day"] == day_idx]
+                day_lessons.sort(key=lambda x: x["slot"])
+
+                lines = []
+                for slot in range(8):
+                    lesson = next((l for l in day_lessons if l["slot"] == slot), None)
+                    if lesson:
+                        # Фильтр по предмету
+                        if search_s and search_s not in lesson['subject'].lower():
+                            lines.append(ft.Text(f"{slot + 1}. —", size=11, color=TEXT_MUTED))
+                            continue
+
+                        room_name = next((r["name"] for r in data["rooms"] if r["id"] == lesson["room_id"]), "—")
+                        # Красим текст в цвет предмета
+                        lines.append(
+                            ft.Text(
+                                f"{slot + 1}. {lesson['subject']} (каб. {room_name})",
+                                size=11,
+                                color=subject_color(lesson['subject']), # <--- Цвет
+                                weight=ft.FontWeight.BOLD
+                            )
+                        )
+                    else:
+                        lines.append(ft.Text(f"{slot + 1}. —", size=11, color=TEXT_MUTED))
+
+                cell_content = ft.Column(
+                    lines,  # <--- Просто передаем готовый список
+                    spacing=2,
+                    alignment=ft.MainAxisAlignment.START
+                )
+
+                row_cells.append(
+                    ft.Container(
+                        content=cell_content,
+                        expand=1, padding=5,
+                        border=ft.Border.all(1, CARD_BORDER),
+                        bgcolor=BG
+                    )
+                )
+
+            grid_rows.append(ft.Row(row_cells, spacing=0))
+
+        grid_container.controls.append(ft.Column(grid_rows, spacing=0))
+        page.update()
 
     # Вкладка «Предметы»
 
@@ -760,6 +1090,23 @@ def main(page: ft.Page):
         subjects_list.controls.clear()
         classes = data["classes"]
 
+        def do_subject_search(e):
+            search_text = (subjects_search.value or "").lower()
+            for container in subjects_list.controls:
+                if hasattr(container, "content") and isinstance(container.content, ft.Column):
+                    found = False
+                    for c in container.content.controls:
+                        if isinstance(c, ft.Row):
+                            for item in c.controls:
+                                if isinstance(item, ft.TextField) and item.value:
+                                    if search_text in item.value.lower():
+                                        found = True
+                                        break
+                    container.visible = found
+            page.update()
+
+        subjects_search.on_change = do_subject_search
+
         for s in data["subjects"]:
             s_id = s["id"]
 
@@ -767,14 +1114,12 @@ def main(page: ft.Page):
                 def handler(e):
                     update_subject_name(sid, e.control.value)
                     reload_and_render()
-
                 return handler
 
             def make_del(sid):
                 def handler(e):
                     delete_subject_db(sid)
                     reload_and_render()
-
                 return handler
 
             hours_inputs = []
@@ -791,7 +1136,6 @@ def main(page: ft.Page):
                             reload_and_render()
                         except ValueError:
                             pass
-
                     return handler
 
                 hours_inputs.append(
@@ -817,6 +1161,34 @@ def main(page: ft.Page):
                         [
                             ft.Row(
                                 [
+                                    # 1. Квадратик с текущим цветом
+                                    ft.Container(
+                                        width=30,
+                                        height=30,
+                                        bgcolor=s.get("color") or subject_color(s["name"]),
+                                        border_radius=6,
+                                        border=ft.Border.all(1, CARD_BORDER),
+                                    ),
+                                    # 2. Выпадающий список с палитрой
+                                    # Палитра цветов в виде кликабельных квадратиков
+                                    ft.Row(
+                                        [
+                                            ft.Container(
+                                                width=24,
+                                                height=24,
+                                                bgcolor=c,
+                                                border_radius=4,
+                                                border=ft.Border.all(2, "white") if (s.get("color") == c or (not s.get("color") and subject_color(s["name"]) == c)) else ft.Border.all(1, CARD_BORDER),
+                                                on_click=lambda e, sid=s_id, color=c: (set_subject_color(sid, color), reload_and_render()),
+                                                ink=True,
+                                            )
+                                            for c in SUBJECT_COLORS
+                                        ],
+                                        spacing=4,
+                                        wrap=True,
+                                        width=300, # Чтобы переносились на новую строку
+                                    ),
+                                                # 3. Поле с названием
                                     ft.TextField(
                                         value=s["name"],
                                         label="Предмет (Enter — обновить)",
@@ -825,12 +1197,24 @@ def main(page: ft.Page):
                                         border_color=CARD_BORDER,
                                         focused_border_color=ACCENT,
                                     ),
+                                    ft.TextField(
+                                        value=str(s.get("difficulty", 0)),
+                                        label="Сложность (1-10)",
+                                        width=120,
+                                        on_submit=lambda e, sid=s_id: (set_subject_difficulty(sid, int(e.control.value or 0)), reload_and_render()),
+                                        on_blur=lambda e, sid=s_id: (set_subject_difficulty(sid, int(e.control.value or 0)), reload_and_render()),
+                                        border_color=CARD_BORDER,
+                                        focused_border_color=ACCENT,
+                                    ),
+                                    # 4. Кнопка удаления
                                     ft.IconButton(
                                         ft.Icons.DELETE,
                                         icon_color="red",
                                         on_click=make_del(s_id),
                                     ),
-                                ]
+                                ],
+                                spacing=10,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             ),
                             ft.Row(hours_inputs, wrap=True),
                         ]
@@ -868,7 +1252,6 @@ def main(page: ft.Page):
                 def handler(e):
                     update_room(rid, name=e.control.value)
                     reload_and_render()
-
                 return handler
 
             def make_capacity_submit(rid):
@@ -878,21 +1261,18 @@ def main(page: ft.Page):
                         reload_and_render()
                     except ValueError:
                         pass
-
                 return handler
 
             def make_spec_submit(rid):
                 def handler(e):
                     update_room(rid, subject_specific=e.control.value)
                     reload_and_render()
-
                 return handler
 
             def make_del(rid):
                 def handler(e):
                     delete_room_db(rid)
                     reload_and_render()
-
                 return handler
 
             card_content = ft.Column(
@@ -998,138 +1378,135 @@ def main(page: ft.Page):
         page.update()
 
     def open_substitution_dialog(lesson):
-            """Диалог поиска замены для урока."""
-            candidates = find_substitutes(
-                data,
-                editable_schedule,
-                lesson.day,
-                lesson.slot,
-                lesson.class_name,
-                lesson.subject,
-                lesson.teacher_id,
-            )
+        """Диалог поиска замены для урока."""
+        candidates = find_substitutes(
+            data,
+            editable_schedule,
+            lesson.day,
+            lesson.slot,
+            lesson.class_name,
+            lesson.subject,
+            lesson.teacher_id,
+        )
 
-            # Имя текущего учителя
-            original_name = next(
-                (t["name"] for t in data["teachers"] if t["id"] == lesson.teacher_id),
-                "—",
-            )
+        original_name = next(
+            (t["name"] for t in data["teachers"] if t["id"] == lesson.teacher_id),
+            "—",
+        )
 
-            content_controls = [
+        content_controls = [
+            ft.Text(
+                f"{lesson.class_name} · {lesson.subject}",
+                size=16,
+                weight=ft.FontWeight.BOLD,
+                color=TEXT_MAIN,
+            ),
+            ft.Text(
+                f"{DAY_NAMES[lesson.day]}, {lesson.slot + 1} урок · "
+                f"текущий: {original_name}",
+                size=13,
+                color=TEXT_MUTED,
+            ),
+            ft.Divider(color=CARD_BORDER),
+        ]
+
+        if not candidates:
+            content_controls.append(
                 ft.Text(
-                    f"{lesson.class_name} · {lesson.subject}",
-                    size=16,
-                    weight=ft.FontWeight.BOLD,
-                    color=TEXT_MAIN,
-                ),
+                    "❌ Свободных учителей с этим предметом нет.",
+                    color="#ef4444",
+                    size=14,
+                )
+            )
+        else:
+            content_controls.append(
                 ft.Text(
-                    f"{DAY_NAMES[lesson.day]}, {lesson.slot + 1} урок · "
-                    f"текущий: {original_name}",
+                    f"Кандидатов: {len(candidates)}",
                     size=13,
                     color=TEXT_MUTED,
-                ),
-                ft.Divider(color=CARD_BORDER),
-            ]
-
-            if not candidates:
-                content_controls.append(
-                    ft.Text(
-                        "❌ Свободных учителей с этим предметом нет.",
-                        color="#ef4444",
-                        size=14,
-                    )
                 )
-            else:
-                content_controls.append(
-                    ft.Text(
-                        f"Кандидатов: {len(candidates)}",
-                        size=13,
-                        color=TEXT_MUTED,
-                    )
-                )
-
-                def make_assign(teacher_id, teacher_name):
-                    def handler(e):
-                        lesson.teacher_id = teacher_id
-                        dlg.open = False
-                        page.update()
-                        render_schedule()
-                        page.update()
-                        show_snack(f"✅ Замена: {teacher_name}", "#10b981")
-
-                    return handler
-
-                for c in candidates:
-                    t = c["teacher"]
-                    badges = []
-                    if c["already_in_class"]:
-                        badges.append(
-                            ft.Container(
-                                content=ft.Text("уже в классе", size=10, color="white"),
-                                bgcolor="#f59e0b",
-                                padding=ft.Padding.symmetric(horizontal=6, vertical=2),
-                                border_radius=10,
-                            )
-                        )
-
-                    content_controls.append(
-                        ft.Container(
-                            content=ft.Row(
-                                [
-                                    ft.Text(t["name"], size=14, color=TEXT_MAIN, width=250),
-                                    ft.Text(
-                                        f"нагрузка: {c['current_load']}",
-                                        size=12,
-                                        color=TEXT_MUTED,
-                                    ),
-                                    *badges,
-                                    ft.Container(expand=True),
-                                    ft.Button(
-                                        "Назначить",
-                                        on_click=make_assign(t["id"], t["name"]),
-                                        style=ft.ButtonStyle(
-                                            bgcolor=ACCENT,
-                                            color="white",
-                                            shape=ft.RoundedRectangleBorder(radius=6),
-                                        ),
-                                    ),
-                                ],
-                                spacing=10,
-                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                            ),
-                            padding=8,
-                            border=ft.Border.all(1, CARD_BORDER),
-                            border_radius=8,
-                            margin=ft.Margin.only(bottom=4),
-                        )
-                    )
-
-            def close_dialog(e):
-                dlg.open = False
-                page.update()
-
-            dlg = ft.AlertDialog(
-                modal=True,
-                title=ft.Text("🔁 Замена учителя", color=TEXT_MAIN),
-                content=ft.Container(
-                    content=ft.Column(
-                        content_controls,
-                        spacing=6,
-                        scroll=ft.ScrollMode.AUTO,
-                    ),
-                    width=800,
-                    height=500,
-                ),
-                actions=[
-                    ft.TextButton("Отмена", on_click=close_dialog),
-                ],
-                actions_alignment=ft.MainAxisAlignment.END,
             )
 
-            page.overlay.append(dlg)
-            dlg.open = True
+            def make_assign(teacher_id, teacher_name):
+                def handler(e):
+                    lesson.teacher_id = teacher_id
+                    dlg.open = False
+                    page.update()
+                    render_schedule()
+                    page.update()
+                    show_snack(f"✅ Замена: {teacher_name}", "#10b981")
+                return handler
+
+            for c in candidates:
+                t = c["teacher"]
+                badges = []
+                if c["already_in_class"]:
+                    badges.append(
+                        ft.Container(
+                            content=ft.Text("уже в классе", size=10, color="white"),
+                            bgcolor="#f59e0b",
+                            padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                            border_radius=10,
+                        )
+                    )
+
+                content_controls.append(
+                    ft.Container(
+                        content=ft.Row(
+                            [
+                                ft.Text(t["name"], size=14, color=TEXT_MAIN, width=250),
+                                ft.Text(
+                                    f"нагрузка: {c['current_load']}",
+                                    size=12,
+                                    color=TEXT_MUTED,
+                                ),
+                                *badges,
+                                ft.Container(expand=True),
+                                ft.Button(
+                                    "Назначить",
+                                    on_click=make_assign(t["id"], t["name"]),
+                                    style=ft.ButtonStyle(
+                                        bgcolor=ACCENT,
+                                        color="white",
+                                        shape=ft.RoundedRectangleBorder(radius=6),
+                                    ),
+                                ),
+                            ],
+                            spacing=10,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        padding=8,
+                        border=ft.Border.all(1, CARD_BORDER),
+                        border_radius=8,
+                        margin=ft.Margin.only(bottom=4),
+                    )
+                )
+
+        def close_dialog(e):
+            dlg.open = False
             page.update()
 
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("🔁 Замена учителя", color=TEXT_MAIN),
+            content=ft.Container(
+                content=ft.Column(
+                    content_controls,
+                    spacing=6,
+                    scroll=ft.ScrollMode.AUTO,
+                ),
+                width=800,
+                height=500,
+            ),
+            actions=[
+                ft.TextButton("Отмена", on_click=close_dialog),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
 
     def make_schedule_header():
         """Шапка таблицы: Урок + дни недели."""
@@ -1167,7 +1544,6 @@ def main(page: ft.Page):
 
         short_name = teacher_name.split()[0] if teacher_name else ""
 
-        # Фолбэк, если кабинет не найден или room_id == None
         room_label = next(
             (r["name"] for r in data["rooms"] if r["id"] == lesson.room_id),
             "—",
@@ -1200,7 +1576,8 @@ def main(page: ft.Page):
                         ],
                         spacing=4,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    ),                ],
+                    ),
+                ],
                 spacing=2,
                 alignment=ft.MainAxisAlignment.CENTER,
             ),
@@ -1463,7 +1840,6 @@ def main(page: ft.Page):
 
             buttons = []
             for label, tab_index in actions:
-
                 def make_handler(idx):
                     def handler(e):
                         try:
@@ -1471,7 +1847,6 @@ def main(page: ft.Page):
                             page.update()
                         except Exception:
                             pass
-
                     return handler
 
                 buttons.append(
@@ -1551,7 +1926,6 @@ def main(page: ft.Page):
         """Составляет расписание через OR-Tools."""
         schedule_output.controls.clear()
         selected_lesson["obj"] = None
-        # Переключаемся на вкладку «Расписание»
         try:
             tabs.selected_index = 0
             page.update()
@@ -1564,7 +1938,6 @@ def main(page: ft.Page):
         from advisor import analyze
 
         problems = analyze(data)
-
         errors = [p for p in problems if p.severity == "error"]
         warnings = [p for p in problems if p.severity == "warning"]
 
@@ -1665,7 +2038,7 @@ def main(page: ft.Page):
             SchoolClass(c["id"], c["name"], c["students"]) for c in data["classes"]
         ]
         subjects = [
-            Subject(s["name"], s["hours"], s.get("teachers", {}))
+            Subject(s["name"], s["hours"], s.get("teachers", {}), s.get("difficulty", 0))
             for s in data["subjects"]
         ]
         rooms = [
@@ -1695,6 +2068,9 @@ def main(page: ft.Page):
         editable_schedule.clear()
         editable_schedule.extend(scheduler.schedule)
 
+        # Сохраняем новое расписание в базу данных
+        save_schedule_db(editable_schedule)
+
         # ---------- ПРОВЕРКА КАБИНЕТОВ ----------
         room_conflicts = []
         busy_rooms_check = {}
@@ -1702,7 +2078,6 @@ def main(page: ft.Page):
         for l in editable_schedule:
             key = (l.day, l.slot, l.room_id)
             if key in busy_rooms_check:
-                # Нашли накладку! Запоминаем, кто и где пересекся
                 room_name = next(
                     (r["name"] for r in data["rooms"] if r["id"] == l.room_id),
                     str(l.room_id),
@@ -1760,7 +2135,6 @@ def main(page: ft.Page):
                 )
             )
 
-        # Предупреждения (было в старом коде)
         if warnings:
             header_row.append(build_warnings_block(warnings))
 
@@ -1780,7 +2154,6 @@ def main(page: ft.Page):
             )
         )
 
-        # Если есть накладки — выводим их списком
         if room_conflicts:
             conflict_rows = [
                 ft.Text(c, color="#ef4444", size=12) for c in room_conflicts[:10]
@@ -1818,34 +2191,51 @@ def main(page: ft.Page):
 
         all_subj_names = sorted(set(l.subject for l in editable_schedule))
         if all_subj_names:
-            legend_items = [
-                ft.Row(
-                    [
-                        ft.Container(
-                            width=12,
-                            height=12,
-                            bgcolor=subject_color(sname),
-                            border_radius=3,
+            legend_items = []
+            for sname in all_subj_names:
+                legend_items.append(
+                    ft.Container(
+                        content=ft.Row(
+                            [
+                                ft.Container(
+                                    width=14,
+                                    height=14,
+                                    bgcolor=subject_color(sname),
+                                    border_radius=4,
+                                ),
+                                ft.Text(sname, color=TEXT_MAIN, size=13),
+                            ],
+                            spacing=6,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         ),
-                        ft.Text(sname, color=TEXT_MUTED, size=11),
-                    ],
-                    spacing=4,
+                        padding=ft.Padding.symmetric(horizontal=10, vertical=6),
+                        border_radius=6,
+                        bgcolor="#1e293b",
+                        border=ft.Border.all(1, CARD_BORDER),
+                        width=220,  # <--- Фиксированная ширина для каждого предмета
+                    )
                 )
-                for sname in all_subj_names
-            ]
+
+            # Оборачиваем в Row с wrap=True, чтобы они переносились на новую строку
             schedule_output.controls.append(
                 ft.Container(
-                    content=ft.Row(legend_items, spacing=15, wrap=True),
+                    content=ft.Row(
+                        legend_items,
+                        spacing=10,
+                        run_spacing=10,
+                        wrap=True
+                    ),
                     bgcolor=CARD_BG,
                     border=ft.Border.all(1, CARD_BORDER),
-                    border_radius=8,
-                    padding=10,
-                    margin=ft.Margin.only(top=8, bottom=10),
+                    border_radius=10,
+                    padding=15,
+                    margin=ft.Margin.only(top=10, bottom=15),
+                    # Убираем expand=True, чтобы Row знал свои границы и начал переносить
                 )
             )
-
-        schedule_output.controls.append(schedule_container)
+            schedule_output.controls.append(schedule_container)
         render_schedule()
+        render_grid_table()
 
         page.update()
 
@@ -1890,11 +2280,9 @@ def main(page: ft.Page):
                 color = "#ef4444"
                 text_color = "white"
 
-            # Кликабельная кнопка-шаг
             def make_click(step_num):
                 def handler(e):
                     go_to_step(step_num)
-
                 return handler
 
             wizard_progress.controls.append(
@@ -2696,7 +3084,7 @@ def main(page: ft.Page):
         )
 
     tabs = ft.Tabs(
-        length=7,
+        length=9,
         selected_index=0,
         expand=True,
         content=ft.Column(
@@ -2711,6 +3099,8 @@ def main(page: ft.Page):
                             ft.Tab(label="🏫 Классы"),
                             ft.Tab(label="📚 Предметы"),
                             ft.Tab(label="🚪 Кабинеты"),
+                            ft.Tab(label="⏰ Звонки"),
+                            ft.Tab(label="📊 Сетка уроков"),
                             ft.Tab(label="❓ Справка"),
                         ]
                     ),
@@ -2744,6 +3134,17 @@ def main(page: ft.Page):
                                                     ),
                                                 ),
                                             ),
+                                            ft.Button(
+                                                "⚙️ Настройки школы",
+                                                on_click=open_school_settings,
+                                                style=ft.ButtonStyle(
+                                                    bgcolor=CARD_BG,
+                                                    color=TEXT_MAIN,
+                                                    padding=ft.Padding.symmetric(horizontal=24, vertical=18),
+                                                    shape=ft.RoundedRectangleBorder(radius=10),
+                                                ),
+                                            ),
+
                                             ft.Button(
                                                 "📊 Экспорт в Excel",
                                                 on_click=export_schedule_to_excel,
@@ -2793,42 +3194,70 @@ def main(page: ft.Page):
                             bgcolor=BG,
                         ),
                         # Учителя
-                        make_tab_content(
-                            "Учителя",
-                            "Список и предметы",
-                            "➕ Добавить учителя",
-                            add_teacher,
-                            teachers_list,
+                        ft.Container(
+                            content=ft.Column(
+                                [
+                                    page_title("Учителя", "Список и предметы"),
+                                    ft.Button(
+                                        "➕ Добавить учителя",
+                                        on_click=add_teacher,
+                                        style=ft.ButtonStyle(
+                                            bgcolor=ACCENT, color="white",
+                                            padding=ft.Padding.symmetric(horizontal=20, vertical=14),
+                                            shape=ft.RoundedRectangleBorder(radius=10),
+                                        ),
+                                    ),
+                                    teachers_search, # <--- Поле поиска
+                                    teachers_list,   # <--- Список карточек
+                                ],
+                                expand=True,
+                                scroll=ft.ScrollMode.AUTO,
+                            ),
+                            padding=30,
+                            expand=True,
+                            bgcolor=BG,
+                        ),                        # Классы (только ввод)
+                        ft.Container(
+                            content=ft.Column(
+                                [
+                                    page_title("Классы", "Список классов и учеников"),
+                                    classes_search,  # <--- Поле поиска
+                                    ft.Divider(color=CARD_BORDER),
+                                    classes_grid,
+                                ],
+                                expand=True,
+                                scroll=ft.ScrollMode.AUTO,
+                            ),
+                            padding=30,
+                            expand=True,
+                            bgcolor=BG,
                         ),
-                        # Классы
-                        make_tab_content(
-                            "Классы",
-                            "Классы и количество учеников",
-                            "➕ Добавить класс",
-                            add_class,
-                            classes_list,
-                        ),
-                        # Предметы
+                                                # Предметы
                         ft.Container(
                             content=ft.Column(
                                 [
                                     page_title(
                                         "Предметы", "Нагрузка в часах по классам"
                                     ),
-                                    # Кнопка «Добавить» — обратно вверх
-                                    ft.Button(
-                                        "➕ Добавить предмет",
-                                        on_click=add_subject,
-                                        style=ft.ButtonStyle(
-                                            bgcolor=ACCENT,
-                                            color="white",
-                                            padding=ft.Padding.symmetric(
-                                                horizontal=20, vertical=14
+                                    ft.Row(
+                                        [
+                                            subjects_search,
+                                            ft.Button(
+                                                "➕ Добавить предмет",
+                                                on_click=add_subject,
+                                                style=ft.ButtonStyle(
+                                                    bgcolor=ACCENT,
+                                                    color="white",
+                                                    padding=ft.Padding.symmetric(
+                                                        horizontal=20, vertical=14
+                                                    ),
+                                                    shape=ft.RoundedRectangleBorder(radius=10),
+                                                ),
                                             ),
-                                            shape=ft.RoundedRectangleBorder(radius=10),
-                                        ),
+                                        ],
+                                        spacing=10,
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                     ),
-                                    # Подсказка про Enter
                                     ft.Container(
                                         content=ft.Row(
                                             [
@@ -2881,6 +3310,49 @@ def main(page: ft.Page):
                             "➕ Добавить кабинет",
                             add_room,
                             rooms_list,
+                        ),
+                        # Звонки
+                        ft.Container(
+                            content=ft.Column(
+                                [
+                                    page_title("Звонки", "Время начала и окончания уроков"),
+                                    ft.Row([
+                                        ft.Button(
+                                            "💾 Сохранить изменения",
+                                            on_click=save_bells_ui,
+                                            style=ft.ButtonStyle(bgcolor="#10b981", color="white", shape=ft.RoundedRectangleBorder(radius=8)),
+                                        )
+                                    ]),
+                                    ft.Divider(color=CARD_BORDER),
+                                    bells_list,
+                                ],
+                                expand=True,
+                                scroll=ft.ScrollMode.AUTO,
+                            ),
+                            padding=30,
+                            expand=True,
+                            bgcolor=BG,
+                        ),
+                        # Сетка уроков (отдельная вкладка)
+                                                # Сетка уроков (отдельная вкладка)
+                        ft.Container(
+                            content=ft.Column(
+                                [
+                                    page_title("Обзор расписания", "Сетка уроков по классам на неделю"),
+                                    ft.Row(
+                                        [grid_search_class, grid_search_subject],
+                                        spacing=10,
+                                        margin=ft.Margin.only(bottom=10)
+                                    ),
+                                    ft.Divider(color=CARD_BORDER),
+                                    grid_container,  # <--- Наша таблица
+                                ],
+                                expand=True,
+                                scroll=ft.ScrollMode.AUTO,
+                            ),
+                            padding=30,
+                            expand=True,
+                            bgcolor=BG,
                         ),
                         # Справка
                         ft.Container(
@@ -3047,9 +3519,11 @@ def main(page: ft.Page):
 
     # Первичная отрисовка
     render_teachers()
-    render_classes()
     render_subjects()
     render_rooms()
+    render_classes_grid()
+    render_bells()
+    render_grid_table()
     render_demo_banner()
 
     render_wizard_progress()

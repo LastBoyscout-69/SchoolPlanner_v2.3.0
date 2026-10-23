@@ -28,24 +28,43 @@ def subject_color_hex(subject_name, subjects_list):
         if s.get("name") == subject_name:
             return SUBJECT_COLORS[i % len(SUBJECT_COLORS)]
     return "64748B"   # серый, если не нашли
-def write_schedule_sheet(ws, class_name, schedule, subjects_list):
+def write_schedule_sheet(ws, class_name, schedule, subjects_list, school_info=None):
     """
     Пишет расписание одного класса на лист ws.
-    schedule — список объектов Lesson
-    subjects_list — список словарей предметов
     """
-    # Заголовок
-    ws.merge_cells("A1:F1")
-    ws["A1"] = f"Расписание: {class_name}"
-    ws["A1"].font = Font(bold=True, size=14, color="FFFFFF")
-    ws["A1"].fill = PatternFill("solid", fgColor="1E293B")
-    ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
-    ws.row_dimensions[1].height = 25
+    row_offset = 0
 
-    # Шапка таблицы
+    # 1. Данные о школе (если есть)
+    if school_info:
+        if school_info.get("name"):
+            ws.merge_cells("A1:F1")
+            ws["A1"] = school_info.get("name")
+            ws["A1"].font = Font(bold=True, size=12)
+            ws["A1"].alignment = Alignment(horizontal="center")
+            row_offset += 1
+
+        if school_info.get("director"):
+            r = row_offset + 1
+            ws.merge_cells(f"A{r}:F{r}")
+            ws[f"A{r}"] = f"Директор: {school_info.get('director')}"
+            ws[f"A{r}"].font = Font(size=10, italic=True)
+            ws[f"A{r}"].alignment = Alignment(horizontal="center")
+            row_offset += 1
+
+    # 2. Заголовок расписания
+    title_row = row_offset + 1
+    ws.merge_cells(f"A{title_row}:F{title_row}")
+    ws[f"A{title_row}"] = f"Расписание: {class_name}"
+    ws[f"A{title_row}"].font = Font(bold=True, size=14, color="FFFFFF")
+    ws[f"A{title_row}"].fill = PatternFill("solid", fgColor="1E293B")
+    ws[f"A{title_row}"].alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[title_row].height = 25
+
+    # 3. Шапка таблицы (Урок + Дни)
+    header_row = title_row + 1
     headers = ["Урок"] + DAY_NAMES
     for col, header in enumerate(headers, start=1):
-        cell = ws.cell(row=2, column=col, value=header)
+        cell = ws.cell(row=header_row, column=col, value=header)
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="334155")
         cell.alignment = Alignment(horizontal="center", vertical="center")
@@ -56,9 +75,11 @@ def write_schedule_sheet(ws, class_name, schedule, subjects_list):
             bottom=Side(style="thin", color="94A3B8"),
         )
 
-    # Сетка расписания
-    for slot in range(7):
-        row = slot + 3
+    # 4. Сетка расписания (8 уроков)
+    start_data_row = header_row + 1
+    for slot in range(8):
+        row = start_data_row + slot
+
         # Номер урока
         cell = ws.cell(row=row, column=1, value=slot + 1)
         cell.font = Font(bold=True)
@@ -70,10 +91,9 @@ def write_schedule_sheet(ws, class_name, schedule, subjects_list):
             bottom=Side(style="thin", color="94A3B8"),
         )
 
-        # Дни
+        # Дни недели
         for day in range(5):
             col = day + 2
-            # Ищем урок для этого класса в этот день/слот
             lesson = None
             for l in schedule:
                 if l.class_name == class_name and l.day == day and l.slot == slot:
@@ -90,9 +110,7 @@ def write_schedule_sheet(ws, class_name, schedule, subjects_list):
                 cell.value = "—"
                 cell.font = Font(color="94A3B8")
 
-            cell.alignment = Alignment(
-                horizontal="center", vertical="center", wrap_text=True
-            )
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
             cell.border = Border(
                 left=Side(style="thin", color="94A3B8"),
                 right=Side(style="thin", color="94A3B8"),
@@ -362,14 +380,15 @@ def export_to_excel(schedule, data, filepath):
         teachers_list = data.get("teachers", [])
         subjects_list = data.get("subjects", [])
         rooms_list = data.get("rooms", [])
+        school_info = data.get("school", {})
 
         # --- Лист на каждый класс ---
+                # --- Лист на каждый класс ---
         for cls in classes_list:
             cname = cls.get("name", "?")
-            # Excel-листы не любят некоторые символы в имени
-            sheet_name = f"Расписание {cname}"[:31]   # лимит 31 символ
+            sheet_name = f"{cname}"[:31]
             ws = wb.create_sheet(title=sheet_name)
-            write_schedule_sheet(ws, cname, schedule, subjects_list)
+            write_schedule_sheet(ws, cname, schedule, subjects_list, school_info)  # <--- Передаем инфу о школе
 
         # --- Лист «По учителям» ---
         ws_teachers = wb.create_sheet(title="По учителям")

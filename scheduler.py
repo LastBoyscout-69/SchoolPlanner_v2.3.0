@@ -90,27 +90,28 @@ class Scheduler:
                 hours = s.hours_per_week.get(cls.name, 0)
                 if hours <= 0:
                     continue
-                # Используем правильного учителя для конкретного класса
                 teacher = self._find_teacher_for_class(s.name, cls.name)
                 if not teacher:
                     continue
                 for _ in range(hours):
                     lesson_specs.append((cls.name, s.name, teacher.id))
+
         n = len(lesson_specs)
         if n == 0:
             return False, "Нет уроков"
 
+        # 1. Переменные для уроков
         x = {}
         for i in range(n):
             for d in range(DAYS):
                 for s in range(SLOTS_PER_DAY):
                     x[(i, d, s)] = model.NewBoolVar(f"x_{i}_{d}_{s}")
 
-        # Каждый урок — ровно в одном слоте
+        # 2. Каждый урок — ровно в одном слоте
         for i in range(n):
             model.Add(sum(x[(i, d, s)] for d in range(DAYS) for s in range(SLOTS_PER_DAY)) == 1)
 
-        # 1. Один класс — один урок в слоте
+        # 3. Один класс — один урок в слоте
         for cls_name in self.classes:
             for d in range(DAYS):
                 for s in range(SLOTS_PER_DAY):
@@ -118,14 +119,25 @@ class Scheduler:
                     if lessons_here:
                         model.Add(sum(x[(i, d, s)] for i in lessons_here) <= 1)
 
-        # 2. Один учитель — один урок в слоте
+        # 4. Один учитель — один урок в слоте
         for t_id in self.teachers:
             for d in range(DAYS):
                 for s in range(SLOTS_PER_DAY):
                     lessons_here = [i for i in range(n) if lesson_specs[i][2] == t_id]
                     if lessons_here:
                         model.Add(sum(x[(i, d, s)] for i in lessons_here) <= 1)
-                # 3. Умный старт: не больше 2 уроков одного предмета в день для класса
+
+        # 5. Запрещённые слоты учителей (методические дни)
+        for i in range(n):
+            t_id = lesson_specs[i][2]
+            teacher = self.teachers[t_id]
+            for slot_info in teacher.unavailable_slots:
+                if len(slot_info) >= 2:
+                    u_day = slot_info[0]
+                    u_slot = slot_info[1]
+                    model.Add(x[(i, u_day, u_slot)] == 0)
+
+        # 6. Не больше 2 уроков одного предмета в день для класса
         for cls_name in self.classes:
             for subj_name in self.subjects:
                 lessons_here = [
@@ -139,17 +151,40 @@ class Scheduler:
                         sum(x[(i, d, s)] for i in lessons_here for s in range(SLOTS_PER_DAY)) <= 2
                     )
 
+        # 7. Учет сложности предметов (штрафы за плохие слоты)
+        penalties = []
+        for i in range(n):
+            cls_name, subj_name, t_id = lesson_specs[i]
+
+            # Достаем сложность предмета из базы
+            difficulty = 0
+            if subj_name in self.subjects:
+                difficulty = getattr(self.subjects[subj_name], 'difficulty', 0)
+
+            # Если предмет сложный (например, 5 и выше)
+            if difficulty >= 5:
+                # Штрафуем 1-й урок
+                penalties.extend(x[(i, d, 0)] for d in range(DAYS))
+                # Штрафуем последние уроки (индекс 6 и 7)
+                penalties.extend(x[(i, d, 6)] for d in range(DAYS))
+                penalties.extend(x[(i, d, 7)] for d in range(DAYS))
+
+        # Применяем штрафы к модели (просим минимизировать их количество)
+        if penalties:
+            model.Minimize(sum(penalties))
+
+        # 8. Решаем
         solver = cp_model.CpSolver()
-        solver.parameters.max_time_in_seconds = 10.0
-        solver.parameters.stop_after_first_solution = True
+        solver.parameters.max_time_in_seconds = 15.0
         solver.parameters.num_search_workers = 8
+        # Убираем stop_after_first_solution, чтобы он искал лучшее решение
 
         status = solver.Solve(model)
 
         if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
             return False, "Не удалось расставить уроки. Попробуйте уменьшить нагрузку."
 
-        # 3. Распределяем кабинеты (в конце)
+        # 9. Умное распределение кабинетов
         self.schedule = []
         busy_rooms = {}
 
@@ -159,22 +194,24 @@ class Scheduler:
                 for s in range(SLOTS_PER_DAY):
                     if solver.Value(x[(i, d, s)]) == 1:
                         avail_rooms = self._find_rooms_for(subj, cls_name)
-                        chosen = None
+
                         if (d, s) not in busy_rooms:
                             busy_rooms[(d, s)] = set()
 
-                        for r in avail_rooms:
-                            if r not in busy_rooms[(d, s)]:
-                                chosen = r
+                        chosen_room = None
+                        for r_id in avail_rooms:
+                            if r_id not in busy_rooms[(d, s)]:
+                                chosen_room = r_id
                                 break
 
-                        if not chosen and avail_rooms:
-                            chosen = avail_rooms[0]
-                        elif not chosen:
-                            chosen = 0
+                        if chosen_room is None:
+                            if avail_rooms:
+                                chosen_room = avail_rooms[0]
+                            else:
+                                chosen_room = 0
                         else:
-                            busy_rooms[(d, s)].add(chosen)
+                            busy_rooms[(d, s)].add(chosen_room)
 
-                        self.schedule.append(Lesson(d, s, cls_name, subj, t_id, chosen))
+                        self.schedule.append(Lesson(d, s, cls_name, subj, t_id, chosen_room))
 
         return True, "OK"

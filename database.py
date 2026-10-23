@@ -43,7 +43,8 @@ CREATE TABLE IF NOT EXISTS teachers (
 CREATE TABLE IF NOT EXISTS subjects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
-    difficulty INTEGER DEFAULT 0
+    difficulty INTEGER DEFAULT 0,
+    color TEXT DEFAULT ''
 );
 
 -- Классы
@@ -51,7 +52,9 @@ CREATE TABLE IF NOT EXISTS classes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
     students INTEGER DEFAULT 25,
-    shift INTEGER DEFAULT 1
+    shift INTEGER DEFAULT 1,
+    boys INTEGER DEFAULT 0,
+    girls INTEGER DEFAULT 0
 );
 
 -- Кабинеты
@@ -94,7 +97,26 @@ CREATE TABLE IF NOT EXISTS lesson_plan (
     FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE,
     FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE SET NULL
 );
+
+-- Расписание звонков
+CREATE TABLE IF NOT EXISTS bell_schedule (
+    slot INTEGER PRIMARY KEY,
+    start_time TEXT,
+    end_time TEXT,
+    break_time INTEGER
+);
+-- Сохранённое расписание
+CREATE TABLE IF NOT EXISTS schedule (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    day INTEGER,
+    slot INTEGER,
+    class_name TEXT,
+    subject TEXT,
+    teacher_id INTEGER,
+    room_id INTEGER
+);
 """
+
 
 
 def get_connection():
@@ -106,14 +128,31 @@ def get_connection():
 
 
 def init_db():
-    """Создаёт базу данных и таблицы, если их нет."""
+    """Создаёт базу данных и таблицы. Добавляет новые колонки, если их нет."""
     conn = get_connection()
     try:
         conn.executescript(SCHEMA)
+
+        # --- Миграция для classes (мальчики и девочки) ---
+        cur = conn.execute("PRAGMA table_info(classes)")
+        columns = [row["name"] for row in cur.fetchall()]
+        if "boys" not in columns:
+            conn.execute("ALTER TABLE classes ADD COLUMN boys INTEGER DEFAULT 0")
+        if "girls" not in columns:
+            conn.execute("ALTER TABLE classes ADD COLUMN girls INTEGER DEFAULT 0")
+
+        # Синхронизация старых данных
+        conn.execute("UPDATE classes SET girls = students WHERE boys = 0 AND girls = 0 AND students > 0")
+
+        # --- Миграция для subjects (цвет предмета) ---
+        cur = conn.execute("PRAGMA table_info(subjects)")
+        columns = [row["name"] for row in cur.fetchall()]
+        if "color" not in columns:
+            conn.execute("ALTER TABLE subjects ADD COLUMN color TEXT DEFAULT ''")
+
         conn.commit()
     finally:
         conn.close()
-
 
 def reset_db():
     """Полностью удаляет файл БД."""
