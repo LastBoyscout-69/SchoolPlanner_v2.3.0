@@ -49,7 +49,7 @@ DAY_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт"]
 SLOTS_PER_DAY = 8
 
 # Версия
-APP_VERSION = "v2.2.0"
+APP_VERSION = "v2.3.0"
 
 # Палитра цветов для предметов
 SUBJECT_COLORS = [
